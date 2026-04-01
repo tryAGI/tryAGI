@@ -3,8 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ORG="${TRYAGI_ORG:-tryAGI}"
+CONFIG_PATH="${TRYAGI_AUDIT_CONFIG_PATH:-$ROOT_DIR/config/generated-sdk-audit.json}"
 OUT_DIR="${TRYAGI_AUDIT_OUT_DIR:-/tmp/tryagi-sdk-audit}"
 ISSUE_LIMIT="${TRYAGI_ISSUE_LIMIT:-100}"
+AUTO_UPDATE_WORKFLOW_FILE="${TRYAGI_AUTO_UPDATE_WORKFLOW_FILE:-auto-update.yml}"
+PUBLISH_WORKFLOW_FILE="${TRYAGI_PUBLISH_WORKFLOW_FILE:-dotnet.yml}"
 SIGNAL_RUN_LIMIT="${TRYAGI_SIGNAL_RUN_LIMIT:-5}"
 SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-^(OpenAI)$}"
 MODE="summary"
@@ -12,22 +15,26 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|briefing|repos] [--repo REGEX] [--out-dir PATH]
+Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|briefing|repos] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   summary    Write settings + workflow TSV reports and print a short summary.
   settings   Write generated-sdk-settings.tsv with auto-merge related repo settings.
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
-  signals    Write generated-sdk-log-signals.tsv by scanning the latest Publish logs.
+  signals    Write generated-sdk-log-signals.tsv by scanning the latest completed Publish logs.
   briefing   Write all reports plus daily-briefing.txt.
   repos      Print the generated SDK repos detected in the current workspace.
 
 Options:
   --repo REGEX   Only include repo names matching the regular expression.
   --out-dir PATH Override the output directory. Default: /tmp/tryagi-sdk-audit
+  --config PATH  Override the audit config file. Default: config/generated-sdk-audit.json
 
 Environment:
+  TRYAGI_AUDIT_CONFIG_PATH         Override the audit config file path.
+  TRYAGI_AUTO_UPDATE_WORKFLOW_FILE Override the auto-update workflow file. Default: auto-update.yml
+  TRYAGI_PUBLISH_WORKFLOW_FILE     Override the publish workflow file. Default: dotnet.yml
   TRYAGI_SIGNAL_RUN_LIMIT           How many recent Publish runs to inspect when finding the latest completed run. Default: 5
   TRYAGI_SIGNAL_SKIP_IGNORE_REGEX   Regex for repos whose skipped/inconclusive test counts should be ignored in summaries. Default: ^(OpenAI)$
 EOF
@@ -54,6 +61,10 @@ parse_args() {
         ;;
       --out-dir)
         OUT_DIR="${2:-}"
+        shift 2
+        ;;
+      --config)
+        CONFIG_PATH="${2:-}"
         shift 2
         ;;
       -h|--help)
@@ -158,6 +169,86 @@ latest_completed_run_json() {
   jq -c '[.[] | select(.status == "completed")][0:1]' <<< "$run_json"
 }
 
+config_value() {
+  local jq_path="$1"
+
+  jq -er "$jq_path // empty" "$CONFIG_PATH" 2>/dev/null || true
+}
+
+config_repo_regex() {
+  local jq_path="$1"
+
+  python3 - <<'PY' "$CONFIG_PATH" "$jq_path"
+import json
+import re
+import sys
+
+config_path, jq_path = sys.argv[1:]
+with open(config_path, encoding="utf-8") as f:
+    data = json.load(f)
+
+value = data
+for part in jq_path.split("."):
+    if not isinstance(value, dict):
+        value = None
+        break
+    value = value.get(part)
+
+if not value:
+    raise SystemExit(1)
+
+print("^(" + "|".join(re.escape(str(item)) for item in value) + ")$")
+PY
+}
+
+load_config() {
+  local value
+
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return
+  fi
+
+  if ! jq empty "$CONFIG_PATH" >/dev/null 2>&1; then
+    echo "Invalid audit config: $CONFIG_PATH" >&2
+    exit 1
+  fi
+
+  if [[ -z "${TRYAGI_ISSUE_LIMIT+x}" ]]; then
+    value="$(config_value '.issue_limit')"
+    if [[ -n "$value" ]]; then
+      ISSUE_LIMIT="$value"
+    fi
+  fi
+
+  if [[ -z "${TRYAGI_AUTO_UPDATE_WORKFLOW_FILE+x}" ]]; then
+    value="$(config_value '.workflows.auto_update_file')"
+    if [[ -n "$value" ]]; then
+      AUTO_UPDATE_WORKFLOW_FILE="$value"
+    fi
+  fi
+
+  if [[ -z "${TRYAGI_PUBLISH_WORKFLOW_FILE+x}" ]]; then
+    value="$(config_value '.workflows.publish_file')"
+    if [[ -n "$value" ]]; then
+      PUBLISH_WORKFLOW_FILE="$value"
+    fi
+  fi
+
+  if [[ -z "${TRYAGI_SIGNAL_RUN_LIMIT+x}" ]]; then
+    value="$(config_value '.signals.run_limit')"
+    if [[ -n "$value" ]]; then
+      SIGNAL_RUN_LIMIT="$value"
+    fi
+  fi
+
+  if [[ -z "${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX+x}" ]]; then
+    value="$(config_repo_regex 'signals.ignored_skip_signal_repos' || true)"
+    if [[ -n "$value" ]]; then
+      SIGNAL_SKIP_IGNORE_REGEX="$value"
+    fi
+  fi
+}
+
 write_settings_report() {
   local output_path="$OUT_DIR/generated-sdk-settings.tsv"
   local repo
@@ -227,8 +318,8 @@ write_workflows_report() {
   printf 'repo\tkind\tworkflow_file\trun_id\tconclusion\tstatus\tcreated_at\thead_branch\turl\n' > "$output_path"
 
   while IFS= read -r repo; do
-    write_workflow_line "$repo" "auto-update" "auto-update.yml" >> "$output_path"
-    write_workflow_line "$repo" "publish" "dotnet.yml" >> "$output_path"
+    write_workflow_line "$repo" "auto-update" "$AUTO_UPDATE_WORKFLOW_FILE" >> "$output_path"
+    write_workflow_line "$repo" "publish" "$PUBLISH_WORKFLOW_FILE" >> "$output_path"
   done < <(list_generated_sdk_repos)
 
   printf '%s\n' "$output_path"
@@ -333,22 +424,22 @@ write_signals_report() {
   printf 'repo\tworkflow_file\trun_id\tconclusion\tstatus\tsignal_status\twarning_lines\tskipped_tests\tinconclusive_hits\turl\n' > "$output_path"
 
   while IFS= read -r repo; do
-    workflow_path="$ROOT_DIR/$repo/.github/workflows/dotnet.yml"
+    workflow_path="$ROOT_DIR/$repo/.github/workflows/$PUBLISH_WORKFLOW_FILE"
     if [[ ! -f "$workflow_path" ]]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "dotnet.yml" "" "" "" "missing-workflow" "" "" "" "" >> "$output_path"
+        "$repo" "$PUBLISH_WORKFLOW_FILE" "" "" "" "missing-workflow" "" "" "" "" >> "$output_path"
       continue
     fi
 
-    if ! run_json="$(latest_completed_run_json "$repo" "dotnet.yml")"; then
+    if ! run_json="$(latest_completed_run_json "$repo" "$PUBLISH_WORKFLOW_FILE")"; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "dotnet.yml" "" "" "" "api-error" "" "" "" "" >> "$output_path"
+        "$repo" "$PUBLISH_WORKFLOW_FILE" "" "" "" "api-error" "" "" "" "" >> "$output_path"
       continue
     fi
 
     if [[ "$(jq 'length' <<< "$run_json")" == "0" ]]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "dotnet.yml" "" "" "" "no-completed-runs" "" "" "" "" >> "$output_path"
+        "$repo" "$PUBLISH_WORKFLOW_FILE" "" "" "" "no-completed-runs" "" "" "" "" >> "$output_path"
       continue
     fi
 
@@ -359,13 +450,13 @@ write_signals_report() {
 
     if ! log_path="$(fetch_run_log "$repo" "$run_id")"; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "dotnet.yml" "$run_id" "$conclusion" "$status" "log-unavailable" "" "" "" "$url" >> "$output_path"
+        "$repo" "$PUBLISH_WORKFLOW_FILE" "$run_id" "$conclusion" "$status" "log-unavailable" "" "" "" "$url" >> "$output_path"
       continue
     fi
 
     counts="$(parse_log_signals "$log_path")"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$repo" "dotnet.yml" "$run_id" "$conclusion" "$status" "ok" \
+      "$repo" "$PUBLISH_WORKFLOW_FILE" "$run_id" "$conclusion" "$status" "ok" \
       "$(cut -f1 <<< "$counts")" \
       "$(cut -f2 <<< "$counts")" \
       "$(cut -f3 <<< "$counts")" \
@@ -581,6 +672,7 @@ main() {
   require_command jq
   require_command python3
   parse_args "$@"
+  load_config
 
   case "$MODE" in
     repos)

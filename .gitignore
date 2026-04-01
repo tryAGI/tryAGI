@@ -3,6 +3,8 @@
 !/.gitignore
 !/*.md
 !/*.sh
+!/config/
+!/config/generated-sdk-audit.json
 !/scripts/
 !/scripts/**
 

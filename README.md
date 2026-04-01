@@ -8,6 +8,7 @@ It does **not** manage the individual SDK repositories inside this folder. Each 
 
 - Cross-repo operating docs such as [AGENTS.md](AGENTS.md)
 - Workspace scripts such as [audit-generated-sdks.sh](scripts/audit-generated-sdks.sh)
+- Audit policy defaults in [config/generated-sdk-audit.json](config/generated-sdk-audit.json)
 - Shared guides such as [NEW_SDK_GUIDE.md](NEW_SDK_GUIDE.md) and [GENERATED_SDK_AUDITS.md](GENERATED_SDK_AUDITS.md)
 
 ## Daily Checks
@@ -30,6 +31,8 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 ```
 
 Outputs are written to `/tmp/tryagi-sdk-audit/`.
+
+Default audit policy lives in [config/generated-sdk-audit.json](config/generated-sdk-audit.json). Prefer updating that file for tracked workspace defaults, and use env vars or `--config` for one-off overrides.
 
 ## Notification Helpers
 

@@ -1,0 +1,13 @@
+{
+  "issue_limit": 100,
+  "workflows": {
+    "auto_update_file": "auto-update.yml",
+    "publish_file": "dotnet.yml"
+  },
+  "signals": {
+    "run_limit": 5,
+    "ignored_skip_signal_repos": [
+      "OpenAI"
+    ]
+  }
+}

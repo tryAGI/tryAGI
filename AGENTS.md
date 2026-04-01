@@ -166,6 +166,7 @@ Use `./scripts/audit-generated-sdks.sh` from the workspace root when you need an
 - `./scripts/audit-generated-sdks.sh briefing` writes all reports plus a daily text briefing
 - `./scripts/audit-generated-sdks.sh --repo '^(OpenAI|Anthropic)$' summary` limits the audit to matching repos
 - `TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh briefing` suppresses skipped/inconclusive noise from known noisy repos in summaries while keeping raw TSV counts
+- `config/generated-sdk-audit.json` is the tracked place for default audit policy such as workflow file names, signal run depth, and skipped-test ignore lists
 
 See [`GENERATED_SDK_AUDITS.md`](GENERATED_SDK_AUDITS.md) for usage details and interpretation.
 

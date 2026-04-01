@@ -2,6 +2,8 @@
 
 Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from the workspace root to get a repeatable snapshot of generated SDK health across the `tryAGI` organization.
 
+Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sdk-audit.json). Prefer changing that file when you want to extend the workspace-wide audit policy.
+
 ## What it checks
 
 - Generated SDK repo detection by scanning local repos for `src/libs/*/generate.sh`
@@ -43,6 +45,9 @@ Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from th
 # Optional: suppress skipped/inconclusive noise from known noisy repos in summaries
 TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh briefing
 
+# Optional: use a different config file for experiments
+./scripts/audit-generated-sdks.sh --config /tmp/generated-sdk-audit.json briefing
+
 # Limit to a subset of repos
 ./scripts/audit-generated-sdks.sh --repo '^(OpenAI|Anthropic|Cohere)$' summary
 ```
@@ -66,11 +71,29 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 By default both files are written to `/tmp/tryagi-sdk-audit/`. Override that path with `--out-dir`.
 
 Environment knobs:
+- `TRYAGI_AUDIT_CONFIG_PATH`
+  - Override the config file path. Default: `config/generated-sdk-audit.json`
+- `TRYAGI_AUTO_UPDATE_WORKFLOW_FILE`
+  - Override the auto-update workflow filename without editing the tracked config
+- `TRYAGI_PUBLISH_WORKFLOW_FILE`
+  - Override the publish workflow filename without editing the tracked config
 - `TRYAGI_SIGNAL_RUN_LIMIT`
   - How many recent `Publish` runs are searched to find the latest completed run for log inspection
 - `TRYAGI_SIGNAL_SKIP_IGNORE_REGEX`
   - Regex for repos whose skipped/inconclusive test counts should be ignored in summaries and briefings
   - Raw counts remain in `generated-sdk-log-signals.tsv`
+
+## Config File
+
+The tracked config file currently controls:
+
+- `issue_limit`
+- `workflows.auto_update_file`
+- `workflows.publish_file`
+- `signals.run_limit`
+- `signals.ignored_skip_signal_repos`
+
+Add new keys there when the audit grows. The script treats the config as the default policy layer, and environment variables or `--config` are the escape hatches for temporary overrides.
 
 ## How to read failures
 
