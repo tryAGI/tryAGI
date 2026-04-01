@@ -31,6 +31,21 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 
 Outputs are written to `/tmp/tryagi-sdk-audit/`.
 
+## Notification Helpers
+
+```bash
+# List the generated SDK repos detected in this workspace
+./scripts/manage-generated-sdk-subscriptions.sh repos
+
+# Preview muting notifications for every generated SDK repo
+./scripts/manage-generated-sdk-subscriptions.sh ignore
+
+# Apply the mute operation after previewing it
+./scripts/manage-generated-sdk-subscriptions.sh ignore --apply
+```
+
+The subscription helper uses `gh api`, so it requires a valid `gh auth login` session.
+
 ## Notes
 
 - The root repo should stay limited to workspace files only.
