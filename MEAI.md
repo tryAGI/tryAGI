@@ -289,7 +289,7 @@ Reference implementations:
 | `Jina/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, multimodal extensions for images/PDFs) |
 | `VoyageAI/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, token usage) |
 | `OpenAI/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, JSON/structured output, temp/topP/seed, AdditionalProperties pass-through) / Full (embeddings with dimensions) |
-| `Coze/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools, reasoning text; bot-centric chat requiring `bot_id` and `user_id`) |
+| `Coze/` | `IChatClient` | 10.4.1 | Partial (text, streaming, reasoning text; bot-centric chat requiring `bot_id` and `user_id`; provider-issued tool calls are not yet emitted as `FunctionCallContent`) |
 | `Tavily/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsExtractTool()` wrappers for use with any `IChatClient`) |
 | `DeepInfra/` | `IChatClient` + `IEmbeddingGenerator` (via `tryAGI.OpenAI`) | 10.4.1 | Full — uses `CustomProviders.DeepInfra()` from `tryAGI.OpenAI` (OpenAI-compatible API) |
 | `Groq/` | `IChatClient` + `IEmbeddingGenerator` (via `tryAGI.OpenAI`) | 10.4.1 | Full — uses `CustomProviders.Groq()` from `tryAGI.OpenAI` (OpenAI-compatible API) |
