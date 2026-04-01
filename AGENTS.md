@@ -166,7 +166,7 @@ Use `./scripts/audit-generated-sdks.sh` from the workspace root when you need an
 - `./scripts/audit-generated-sdks.sh briefing` writes all reports plus a spoken daily briefing file when `say` is available
 - `./scripts/audit-generated-sdks.sh --repo '^(OpenAI|Anthropic)$' summary` limits the audit to matching repos
 
-See [`docs/generated-sdk-audits.md`](docs/generated-sdk-audits.md) for usage details and interpretation.
+See [`GENERATED_SDK_AUDITS.md`](GENERATED_SDK_AUDITS.md) for usage details and interpretation.
 
 ## Reference Files
 
@@ -176,4 +176,4 @@ Detailed reference data is split into dedicated files to keep this file concise:
 - [`NEW_SDK_GUIDE.md`](NEW_SDK_GUIDE.md) — Creating new SDKs (`autosdk init`), GitHub repo setup (topics, pages), documentation generation, AsyncAPI, CSharpToJsonSchema tools integration
 - [`SPEC_WORKAROUNDS.md`](SPEC_WORKAROUNDS.md) — Spec fix inventory table, resolved/open AutoSDK issues, auth runtime hooks list
 - [`MEAI.md`](MEAI.md) — MEAI implementation tracker, feature matrices, namespace conflict patterns, CustomProviders table, already-implemented table, not-applicable list, per-SDK documentation links
-- [`docs/generated-sdk-audits.md`](docs/generated-sdk-audits.md) — Cross-SDK audit workflow for merge settings, regeneration runs, and publish runs
+- [`GENERATED_SDK_AUDITS.md`](GENERATED_SDK_AUDITS.md) — Cross-SDK audit workflow for merge settings, regeneration runs, publish runs, issues, and daily briefings

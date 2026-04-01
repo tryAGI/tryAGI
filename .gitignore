@@ -3,8 +3,6 @@
 !/.gitignore
 !/*.md
 !/*.sh
-!/docs/
-!/docs/**
 !/scripts/
 !/scripts/**
 

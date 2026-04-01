@@ -8,7 +8,7 @@ It does **not** manage the individual SDK repositories inside this folder. Each 
 
 - Cross-repo operating docs such as [AGENTS.md](AGENTS.md)
 - Workspace scripts such as [audit-generated-sdks.sh](scripts/audit-generated-sdks.sh)
-- Shared guides such as [NEW_SDK_GUIDE.md](NEW_SDK_GUIDE.md) and [generated-sdk-audits.md](docs/generated-sdk-audits.md)
+- Shared guides such as [NEW_SDK_GUIDE.md](NEW_SDK_GUIDE.md) and [GENERATED_SDK_AUDITS.md](GENERATED_SDK_AUDITS.md)
 
 ## Daily Checks
 
