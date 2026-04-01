@@ -19,11 +19,14 @@ It does **not** manage the individual SDK repositories inside this folder. Each 
 # Open issues across generated SDK repos
 ./scripts/audit-generated-sdks.sh issues
 
-# Heuristic warning / skipped-test scan on the latest publish runs
+# Heuristic warning / skipped-test scan on the latest completed publish runs
 ./scripts/audit-generated-sdks.sh signals
 
 # Full daily briefing as text
 ./scripts/audit-generated-sdks.sh briefing
+
+# Optional: ignore skipped/inconclusive noise from specific repos in summaries
+TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh briefing
 ```
 
 Outputs are written to `/tmp/tryagi-sdk-audit/`.

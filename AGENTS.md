@@ -162,9 +162,10 @@ Use `./scripts/audit-generated-sdks.sh` from the workspace root when you need an
 - `./scripts/audit-generated-sdks.sh settings` only checks `allow_auto_merge`, `delete_branch_on_merge`, and `allow_update_branch`
 - `./scripts/audit-generated-sdks.sh workflows` only checks the latest regeneration and publish runs
 - `./scripts/audit-generated-sdks.sh issues` writes the current open-issue inventory for generated SDK repos
-- `./scripts/audit-generated-sdks.sh signals` inspects the latest publish logs for warning lines, skipped tests, and inconclusive-test signals
+- `./scripts/audit-generated-sdks.sh signals` inspects the latest completed publish logs for warning lines, skipped tests, and inconclusive-test signals
 - `./scripts/audit-generated-sdks.sh briefing` writes all reports plus a daily text briefing
 - `./scripts/audit-generated-sdks.sh --repo '^(OpenAI|Anthropic)$' summary` limits the audit to matching repos
+- `TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh briefing` suppresses skipped/inconclusive noise from known noisy repos in summaries while keeping raw TSV counts
 
 See [`GENERATED_SDK_AUDITS.md`](GENERATED_SDK_AUDITS.md) for usage details and interpretation.
 

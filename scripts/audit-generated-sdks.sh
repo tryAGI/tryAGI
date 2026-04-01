@@ -5,6 +5,8 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ORG="${TRYAGI_ORG:-tryAGI}"
 OUT_DIR="${TRYAGI_AUDIT_OUT_DIR:-/tmp/tryagi-sdk-audit}"
 ISSUE_LIMIT="${TRYAGI_ISSUE_LIMIT:-100}"
+SIGNAL_RUN_LIMIT="${TRYAGI_SIGNAL_RUN_LIMIT:-5}"
+SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-^(OpenAI)$}"
 MODE="summary"
 REPO_FILTER=""
 
@@ -24,6 +26,10 @@ Modes:
 Options:
   --repo REGEX   Only include repo names matching the regular expression.
   --out-dir PATH Override the output directory. Default: /tmp/tryagi-sdk-audit
+
+Environment:
+  TRYAGI_SIGNAL_RUN_LIMIT           How many recent Publish runs to inspect when finding the latest completed run. Default: 5
+  TRYAGI_SIGNAL_SKIP_IGNORE_REGEX   Regex for repos whose skipped/inconclusive test counts should be ignored in summaries. Default: ^(OpenAI)$
 EOF
 }
 
@@ -114,15 +120,42 @@ PY
 latest_run_json() {
   local repo="$1"
   local workflow_file="$2"
+  local limit="${3:-1}"
   local api_target
+  local response
 
   api_target="$(repo_api_target "$repo")"
 
-  gh run list \
-    --repo "$api_target" \
-    --workflow "$workflow_file" \
-    --limit 1 \
-    --json databaseId,workflowName,status,conclusion,createdAt,updatedAt,headBranch,url 2>/dev/null || printf '[]\n'
+  if ! response="$(
+    gh api "repos/$api_target/actions/workflows/$workflow_file/runs?per_page=$limit" 2>/dev/null
+  )"; then
+    return 1
+  fi
+
+  jq -c '
+    (.workflow_runs // [])
+    | map(
+        {
+          databaseId: .id,
+          workflowName: (.name // ""),
+          status: (.status // ""),
+          conclusion: (.conclusion // ""),
+          createdAt: (.created_at // ""),
+          updatedAt: (.updated_at // ""),
+          headBranch: (.head_branch // ""),
+          url: (.html_url // "")
+        }
+      )
+  ' <<< "$response"
+}
+
+latest_completed_run_json() {
+  local repo="$1"
+  local workflow_file="$2"
+  local run_json
+
+  run_json="$(latest_run_json "$repo" "$workflow_file" "$SIGNAL_RUN_LIMIT")" || return 1
+  jq -c '[.[] | select(.status == "completed")][0:1]' <<< "$run_json"
 }
 
 write_settings_report() {
@@ -156,7 +189,12 @@ write_workflow_line() {
     return
   fi
 
-  run_json="$(latest_run_json "$repo" "$workflow_file")"
+  if ! run_json="$(latest_run_json "$repo" "$workflow_file")"; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$kind" "$workflow_file" "" "api-error" "" "" "" ""
+    return
+  fi
+
   jq -r \
     --arg repo "$repo" \
     --arg kind "$kind" \
@@ -302,10 +340,15 @@ write_signals_report() {
       continue
     fi
 
-    run_json="$(latest_run_json "$repo" "dotnet.yml")"
+    if ! run_json="$(latest_completed_run_json "$repo" "dotnet.yml")"; then
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$repo" "dotnet.yml" "" "" "" "api-error" "" "" "" "" >> "$output_path"
+      continue
+    fi
+
     if [[ "$(jq 'length' <<< "$run_json")" == "0" ]]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "dotnet.yml" "" "" "" "no-runs" "" "" "" "" >> "$output_path"
+        "$repo" "dotnet.yml" "" "" "" "no-completed-runs" "" "" "" "" >> "$output_path"
       continue
     fi
 
@@ -313,12 +356,6 @@ write_signals_report() {
     conclusion="$(jq -r '.[0].conclusion // ""' <<< "$run_json")"
     status="$(jq -r '.[0].status // ""' <<< "$run_json")"
     url="$(jq -r '.[0].url // ""' <<< "$run_json")"
-
-    if [[ "$status" != "completed" ]]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "dotnet.yml" "$run_id" "$conclusion" "$status" "run-not-completed" "" "" "" "$url" >> "$output_path"
-      continue
-    fi
 
     if ! log_path="$(fetch_run_log "$repo" "$run_id")"; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -347,11 +384,14 @@ render_briefing_text() {
 
   python3 - <<'PY' "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$output_path"
 import csv
+import os
+import re
 import sys
 from collections import Counter
 from datetime import datetime
 
 settings_path, workflows_path, issues_path, signals_path, output_path = sys.argv[1:]
+signal_skip_ignore_regex = os.environ.get("TRYAGI_SIGNAL_SKIP_IGNORE_REGEX", "^(OpenAI)$")
 
 def read_tsv(path):
     with open(path, encoding="utf-8", newline="") as f:
@@ -385,6 +425,18 @@ def parse_dt(value):
         return datetime.min
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
+def effective_skipped_tests(row):
+    raw_value = int(row["skipped_tests"] or 0)
+    if raw_value == 0:
+        return 0
+    return 0 if re.search(signal_skip_ignore_regex, row["repo"] or "") else raw_value
+
+def effective_inconclusive_hits(row):
+    raw_value = int(row["inconclusive_hits"] or 0)
+    if raw_value == 0:
+        return 0
+    return 0 if re.search(signal_skip_ignore_regex, row["repo"] or "") else raw_value
+
 recent_issues = sorted(
     [row for row in issues if row["repo"]],
     key=lambda row: parse_dt(row["updated_at"]),
@@ -395,8 +447,8 @@ signal_rows = [
     row for row in signals
     if row["signal_status"] == "ok" and (
         int(row["warning_lines"] or 0) > 0
-        or int(row["skipped_tests"] or 0) > 0
-        or int(row["inconclusive_hits"] or 0) > 0
+        or effective_skipped_tests(row) > 0
+        or effective_inconclusive_hits(row) > 0
     )
 ]
 
@@ -431,18 +483,18 @@ else:
             lines.append(f"{row['repo']} issue {row['issue_number']}: {row['title']}.")
 
 if signal_rows:
-    lines.append("The latest publish logs also showed warning or skip signals.")
+    lines.append("The latest completed publish logs also showed warning or skip signals.")
     for row in signal_rows[:8]:
         bits = []
         if int(row["warning_lines"] or 0) > 0:
             bits.append(f"{row['warning_lines']} warning lines")
-        if int(row["skipped_tests"] or 0) > 0:
-            bits.append(f"{row['skipped_tests']} skipped tests")
-        if int(row["inconclusive_hits"] or 0) > 0:
-            bits.append(f"{row['inconclusive_hits']} inconclusive hits")
+        if effective_skipped_tests(row) > 0:
+            bits.append(f"{effective_skipped_tests(row)} skipped tests")
+        if effective_inconclusive_hits(row) > 0:
+            bits.append(f"{effective_inconclusive_hits(row)} inconclusive hits")
         lines.append(f"{row['repo']} reported " + ", ".join(bits) + ".")
 else:
-    lines.append("No warning or skipped test signals were detected in the latest publish logs.")
+    lines.append("No warning or skipped test signals were detected in the latest completed publish logs.")
 
 lines.append("End of briefing.")
 
@@ -487,7 +539,21 @@ print_summary() {
   if [[ -n "$signals_path" ]]; then
     printf 'Log signal report: %s\n' "$signals_path"
     printf 'Repos with warning / skip signals: %s\n' "$(
-      awk -F '\t' 'NR > 1 && $6 == "ok" && (($7 + 0) > 0 || ($8 + 0) > 0 || ($9 + 0) > 0) { count++ } END { print count + 0 }' "$signals_path"
+      awk -F '\t' -v ignore_regex="$SIGNAL_SKIP_IGNORE_REGEX" '
+        NR > 1 && $6 == "ok" {
+          warning_lines = $7 + 0
+          skipped_tests = $8 + 0
+          inconclusive_hits = $9 + 0
+          if (ignore_regex != "" && $1 ~ ignore_regex) {
+            skipped_tests = 0
+            inconclusive_hits = 0
+          }
+          if (warning_lines > 0 || skipped_tests > 0 || inconclusive_hits > 0) {
+            count++
+          }
+        }
+        END { print count + 0 }
+      ' "$signals_path"
     )"
   fi
 

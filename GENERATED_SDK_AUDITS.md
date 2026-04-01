@@ -13,7 +13,7 @@ Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from th
   - `.github/workflows/auto-update.yml`
   - `.github/workflows/dotnet.yml`
 - Open issues for generated SDK repos
-- Heuristic warning signals from the latest publish logs:
+- Heuristic warning signals from the latest completed publish runs:
   - warning lines
   - skipped tests
   - inconclusive-test markers
@@ -34,11 +34,14 @@ Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from th
 # Open issues across generated SDK repos
 ./scripts/audit-generated-sdks.sh issues
 
-# Warning / skipped-test signals from the latest Publish runs
+# Warning / skipped-test signals from the latest completed Publish runs
 ./scripts/audit-generated-sdks.sh signals
 
 # All reports plus daily text briefing
 ./scripts/audit-generated-sdks.sh briefing
+
+# Optional: suppress skipped/inconclusive noise from known noisy repos in summaries
+TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh briefing
 
 # Limit to a subset of repos
 ./scripts/audit-generated-sdks.sh --repo '^(OpenAI|Anthropic|Cohere)$' summary
@@ -56,11 +59,18 @@ Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from th
   - One row per open issue
   - Includes repo, issue number, title, labels, and URL
 - `generated-sdk-log-signals.tsv`
-  - One row per repo for the latest `Publish` run
-  - Includes warning-line counts, skipped-test counts, and inconclusive-test hits
+  - One row per repo for the latest completed `Publish` run
+  - Includes raw warning-line counts, skipped-test counts, and inconclusive-test hits
 - `daily-briefing.txt`
   - Short human-readable daily summary
 By default both files are written to `/tmp/tryagi-sdk-audit/`. Override that path with `--out-dir`.
+
+Environment knobs:
+- `TRYAGI_SIGNAL_RUN_LIMIT`
+  - How many recent `Publish` runs are searched to find the latest completed run for log inspection
+- `TRYAGI_SIGNAL_SKIP_IGNORE_REGEX`
+  - Regex for repos whose skipped/inconclusive test counts should be ignored in summaries and briefings
+  - Raw counts remain in `generated-sdk-log-signals.tsv`
 
 ## How to read failures
 
@@ -74,12 +84,14 @@ By default both files are written to `/tmp/tryagi-sdk-audit/`. Override that pat
   - Usually spec download drift, generator breakage, or transient upstream/network issues
 - `publish` latest run failed
   - Usually build/test regressions, package id collisions, or NuGet credential/package ownership issues
+- `api-error` in workflow or signal reports
+  - GitHub API lookup failed, often because of rate limits or a transient GitHub-side error
 - Non-zero `warning_lines`
   - The latest publish run emitted warning lines worth checking
 - Non-zero `skipped_tests`
-  - The latest publish run skipped tests; often expected for credential-gated tests, but still worth tracking
+  - The latest completed publish run skipped tests; often expected for credential-gated tests, but still worth tracking
 - Non-zero `inconclusive_hits`
-  - The latest publish run contains inconclusive-test markers or skipped-by-design test paths
+  - The latest completed publish run contains inconclusive-test markers or skipped-by-design test paths
 
 ## Follow-up workflow
 
