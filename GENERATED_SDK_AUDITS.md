@@ -17,7 +17,7 @@ Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from th
   - warning lines
   - skipped tests
   - inconclusive-test markers
-- A daily spoken briefing on macOS when `say` is available
+- A daily text briefing
 
 ## Commands
 
@@ -37,7 +37,7 @@ Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from th
 # Warning / skipped-test signals from the latest Publish runs
 ./scripts/audit-generated-sdks.sh signals
 
-# All reports plus text/audio daily briefing
+# All reports plus daily text briefing
 ./scripts/audit-generated-sdks.sh briefing
 
 # Limit to a subset of repos
@@ -60,9 +60,6 @@ Use [`scripts/audit-generated-sdks.sh`](scripts/audit-generated-sdks.sh) from th
   - Includes warning-line counts, skipped-test counts, and inconclusive-test hits
 - `daily-briefing.txt`
   - Short human-readable daily summary
-- `daily-briefing.aiff`
-  - Spoken version of the briefing when `say` is available
-
 By default both files are written to `/tmp/tryagi-sdk-audit/`. Override that path with `--out-dir`.
 
 ## How to read failures
@@ -87,7 +84,7 @@ By default both files are written to `/tmp/tryagi-sdk-audit/`. Override that pat
 ## Follow-up workflow
 
 1. Run `./scripts/audit-generated-sdks.sh summary`.
-2. Run `./scripts/audit-generated-sdks.sh briefing` when you want the full daily text/audio pass.
+2. Run `./scripts/audit-generated-sdks.sh briefing` when you want the full daily text pass.
 3. Open the failing repo locally.
 4. Fix the repo or org setting.
 5. Commit and push on `main`.

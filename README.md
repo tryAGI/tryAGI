@@ -22,7 +22,7 @@ It does **not** manage the individual SDK repositories inside this folder. Each 
 # Heuristic warning / skipped-test scan on the latest publish runs
 ./scripts/audit-generated-sdks.sh signals
 
-# Full daily briefing with text + local audio (macOS `say`)
+# Full daily briefing as text
 ./scripts/audit-generated-sdks.sh briefing
 ```
 

@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ORG="${TRYAGI_ORG:-tryAGI}"
 OUT_DIR="${TRYAGI_AUDIT_OUT_DIR:-/tmp/tryagi-sdk-audit}"
-VOICE="${TRYAGI_AUDIT_VOICE:-Samantha}"
 ISSUE_LIMIT="${TRYAGI_ISSUE_LIMIT:-100}"
 MODE="summary"
 REPO_FILTER=""
@@ -19,7 +18,7 @@ Modes:
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
   signals    Write generated-sdk-log-signals.tsv by scanning the latest Publish logs.
-  briefing   Write all reports plus daily-briefing.txt and daily-briefing.aiff when `say` is available.
+  briefing   Write all reports plus daily-briefing.txt.
   repos      Print the generated SDK repos detected in the current workspace.
 
 Options:
@@ -452,18 +451,6 @@ with open(output_path, "w", encoding="utf-8") as f:
 PY
 }
 
-write_audio_briefing() {
-  local text_path="$1"
-  local output_path="$OUT_DIR/daily-briefing.aiff"
-
-  if ! command -v say >/dev/null 2>&1; then
-    return 1
-  fi
-
-  say -v "$VOICE" -f "$text_path" -o "$output_path"
-  printf '%s\n' "$output_path"
-}
-
 print_summary() {
   local settings_path="$1"
   local workflows_path="$2"
@@ -523,7 +510,6 @@ main() {
   local issues_path
   local signals_path
   local briefing_path
-  local audio_path
 
   require_command gh
   require_command jq
@@ -560,11 +546,6 @@ main() {
       render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$briefing_path"
       print_summary "$settings_path" "$workflows_path" "$issues_path" "$signals_path"
       printf 'Briefing text: %s\n' "$briefing_path"
-      if audio_path="$(write_audio_briefing "$briefing_path" 2>/dev/null)"; then
-        printf 'Briefing audio: %s\n' "$audio_path"
-      else
-        printf 'Briefing audio: say not available or audio generation failed\n'
-      fi
       ;;
   esac
 }
