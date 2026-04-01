@@ -82,12 +82,45 @@ list_generated_sdk_repos() {
   done | sort
 }
 
+repo_api_target() {
+  local repo="$1"
+  local remote_url
+
+  remote_url="$(git -C "$ROOT_DIR/$repo" remote get-url origin 2>/dev/null || true)"
+  if [[ -z "$remote_url" ]]; then
+    printf '%s/%s\n' "$ORG" "$repo"
+    return
+  fi
+
+  python3 - <<'PY' "$remote_url" "$ORG" "$repo"
+import re
+import sys
+
+remote_url, org, repo = sys.argv[1:]
+patterns = [
+    r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$",
+    r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$",
+]
+
+for pattern in patterns:
+    match = re.match(pattern, remote_url)
+    if match:
+        print(f"{match.group(1)}/{match.group(2)}")
+        raise SystemExit(0)
+
+print(f"{org}/{repo}")
+PY
+}
+
 latest_run_json() {
   local repo="$1"
   local workflow_file="$2"
+  local api_target
+
+  api_target="$(repo_api_target "$repo")"
 
   gh run list \
-    --repo "$ORG/$repo" \
+    --repo "$api_target" \
     --workflow "$workflow_file" \
     --limit 1 \
     --json databaseId,workflowName,status,conclusion,createdAt,updatedAt,headBranch,url 2>/dev/null || printf '[]\n'
@@ -96,12 +129,16 @@ latest_run_json() {
 write_settings_report() {
   local output_path="$OUT_DIR/generated-sdk-settings.tsv"
   local repo
+  local api_target
 
   mkdir -p "$OUT_DIR"
   printf 'repo\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\n' > "$output_path"
 
   while IFS= read -r repo; do
-    gh api "repos/$ORG/$repo" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv' >> "$output_path"
+    api_target="$(repo_api_target "$repo")"
+    if ! gh api "repos/$api_target" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv' >> "$output_path" 2>/dev/null; then
+      printf '%s\tunknown\tunknown\tunknown\n' "$repo" >> "$output_path"
+    fi
   done < <(list_generated_sdk_repos)
 
   printf '%s\n' "$output_path"
@@ -163,13 +200,15 @@ write_workflows_report() {
 write_issues_report() {
   local output_path="$OUT_DIR/generated-sdk-open-issues.tsv"
   local repo
+  local api_target
   local issues_json
 
   mkdir -p "$OUT_DIR"
   printf 'repo\tissue_number\ttitle\tupdated_at\tlabels\turl\n' > "$output_path"
 
   while IFS= read -r repo; do
-    issues_json="$(gh issue list --repo "$ORG/$repo" --state open --limit "$ISSUE_LIMIT" --json number,title,updatedAt,url,labels 2>/dev/null || printf '[]\n')"
+    api_target="$(repo_api_target "$repo")"
+    issues_json="$(gh issue list --repo "$api_target" --state open --limit "$ISSUE_LIMIT" --json number,title,updatedAt,url,labels 2>/dev/null || printf '[]\n')"
     jq -r \
       --arg repo "$repo" \
       '
@@ -191,13 +230,15 @@ write_issues_report() {
 fetch_run_log() {
   local repo="$1"
   local run_id="$2"
+  local api_target
   local log_dir="$OUT_DIR/logs"
   local log_path="$log_dir/$repo-$run_id.log"
 
   mkdir -p "$log_dir"
+  api_target="$(repo_api_target "$repo")"
 
   if [[ ! -f "$log_path" ]]; then
-    if ! gh run view "$run_id" --repo "$ORG/$repo" --log > "$log_path" 2>/dev/null; then
+    if ! gh run view "$run_id" --repo "$api_target" --log > "$log_path" 2>/dev/null; then
       rm -f "$log_path"
       return 1
     fi
