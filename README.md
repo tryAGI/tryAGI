@@ -1,0 +1,34 @@
+# tryAGI Workspace
+
+This repository tracks the workspace-level operational files for the `tryAGI` organization.
+
+It does **not** manage the individual SDK repositories inside this folder. Each SDK remains an independent git repository in its own subdirectory, and the root workspace repo ignores those nested repos on purpose.
+
+## What Lives Here
+
+- Cross-repo operating docs such as [AGENTS.md](AGENTS.md)
+- Workspace scripts such as [audit-generated-sdks.sh](scripts/audit-generated-sdks.sh)
+- Shared guides such as [NEW_SDK_GUIDE.md](NEW_SDK_GUIDE.md) and [generated-sdk-audits.md](docs/generated-sdk-audits.md)
+
+## Daily Checks
+
+```bash
+# Fast status for generated SDK settings + workflows
+./scripts/audit-generated-sdks.sh summary
+
+# Open issues across generated SDK repos
+./scripts/audit-generated-sdks.sh issues
+
+# Heuristic warning / skipped-test scan on the latest publish runs
+./scripts/audit-generated-sdks.sh signals
+
+# Full daily briefing with text + local audio (macOS `say`)
+./scripts/audit-generated-sdks.sh briefing
+```
+
+Outputs are written to `/tmp/tryagi-sdk-audit/`.
+
+## Notes
+
+- The root repo should stay limited to workspace files only.
+- Do not add nested SDK repositories from this folder into the root repo.

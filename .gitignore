@@ -1,0 +1,11 @@
+# Workspace repo: track only root-level docs/scripts and ignore nested SDK repos.
+/*
+!/.gitignore
+!/*.md
+!/*.sh
+!/docs/
+!/docs/**
+!/scripts/
+!/scripts/**
+
+.DS_Store
