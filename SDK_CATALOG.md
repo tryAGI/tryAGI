@@ -35,7 +35,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `BlackForestLabs/`, `Creatomate/`, `DId/`, `HeyGen/`, `Hedra/`, `Ideogram/`, `KlingAI/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `Picsart/`, `Photoroom/`, `Recraft/`, `Replicate/`, `Runway/`, `Shotstack/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `Tripo/`, `WaveSpeedAI/`
 
 **Audio / Speech:**
-`AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `LalalAI/`, `Murf/`, `RetellAI/`, `RevAI/`, `Speechmatics/`, `Ultravox/`, `Vapi/`
+`AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `Murf/`, `RetellAI/`, `RevAI/`, `Speechmatics/`, `Ultravox/`, `Vapi/`
 
 **Search / RAG / Embeddings:**
 `Algolia/`, `BraveSearch/`, `Exa/`, `GroundX/`, `Jina/`, `Mixedbread/`, `Nomic/`, `Serper/`, `Tavily/`, `Vectara/`, `VoyageAI/`
