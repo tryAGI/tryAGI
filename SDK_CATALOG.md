@@ -32,7 +32,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `Anthropic/`, `Cohere/`, `DeepInfra/`, `Google.Gemini/`, `Mistral/`, `Ollama/`, `OpenAI/`, `PredictionGuard/`, `Reka/`, `SarvamAI/`, `Together/`, `AI21/`, `Upstage/`, `Writer/`, `Writesonic/`, `Xai/`
 
 **Image / Video / 3D Generation:**
-`BlackForestLabs/`, `Creatomate/`, `DId/`, `HeyGen/`, `Hedra/`, `Ideogram/`, `KlingAI/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `Picsart/`, `Photoroom/`, `Recraft/`, `Replicate/`, `Runway/`, `Shotstack/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `Tripo/`, `WaveSpeedAI/`
+`BlackForestLabs/`, `Creatomate/`, `CsmAi/`, `DId/`, `DoubaoSeed3D/`, `HeyGen/`, `Hedra/`, `Hitem3D/`, `Hyper3D/`, `Ideogram/`, `KlingAI/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `Neural4D/`, `Picsart/`, `Photoroom/`, `Recraft/`, `Replicate/`, `Runware/`, `Runway/`, `Shotstack/`, `Sloyd/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `ThreeDAIStudio/`, `Tripo/`, `Triverse/`, `WaveSpeedAI/`
 
 **Audio / Speech:**
 `AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `Murf/`, `RetellAI/`, `RevAI/`, `Speechmatics/`, `Ultravox/`, `Vapi/`
