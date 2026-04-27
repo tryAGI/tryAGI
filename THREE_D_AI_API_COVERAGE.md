@@ -31,6 +31,30 @@ not reverse engineered from private web-app traffic.
 | Alpha3D | Blocked | Public API marketing page exists, but no stable endpoint/auth/body schemas were available without relying on private web-app internals. |
 | Triverse AI | `Triverse/` | New direct SDK from public API docs and manual OpenAPI. |
 
+## Blocked Provider Backlog
+
+These entries were intentionally left without new SDKs during the 2026-04-27
+coverage pass. Revisit them when a public API contract appears or when a user
+explicitly approves working from a private/partner contract.
+
+| Provider | Current blocker | What would unblock it | Next check |
+|----------|-----------------|-----------------------|------------|
+| VARCO 3D (NC AI / NCSoft) | The public reference shell exists, but the page did not expose stable endpoint, auth, request, and response schemas during the audit. | Public OpenAPI, downloadable Postman collection, or endpoint docs with auth plus request/response examples. | Recheck the reference page and any `api.varco.ai` markdown/export endpoint. If still shell-only, contact provider or wait for docs to publish. |
+| YVO3D | No stable public endpoint-level API documentation was found. | Official API docs or a partner API contract that documents base URL, auth, model/task endpoints, payloads, and output URLs. | Search for new developer docs, "API", "webhook", "task", or "OpenAPI" references on the provider site and docs. |
+| Lychee | No stable public endpoint-level API documentation was found for the listed 3D generation product. | Official generation API documentation or an OpenAPI/Postman contract. | Recheck product docs and any developer portal; confirm whether the product offers public API access or only web UI/export workflows. |
+| Spline AI | No stable public endpoint-level API documentation was found for Spline AI generation. | Public API docs for AI generation endpoints, not just Spline scene/project APIs. | Recheck Spline developer docs for AI-specific create/generate endpoints and auth scopes. |
+| Autodesk | No public Autodesk API contract was found for the specific AI 3D generation tool in the list. | A named Autodesk service/API with documented AI 3D generation endpoints and auth. | Identify the exact Autodesk product backing the listed tool, then check Autodesk Platform Services docs for matching generation endpoints. |
+| Alpha3D | Public API marketing/docs page exists, but no stable endpoint/auth/body schemas were available without relying on private web-app internals. | Official API reference with documented endpoints or a partner API contract. | Recheck Alpha3D docs for a developer reference or OpenAPI export. Avoid using internal web-app endpoints unless explicitly approved. |
+
+For any blocked entry, the minimum SDK intake criteria are:
+
+- Base URL and supported environments.
+- Authentication scheme and token/header/query details.
+- Endpoint list with HTTP methods and paths.
+- Request and response schemas, including async task states and output file fields.
+- Error schema and rate-limit behavior if available.
+- Terms that allow using the API from a generated public SDK.
+
 ## Source References
 
 - Hitem3D API docs: <https://docs.hitem3d.ai/en/api/api-reference/overview>
