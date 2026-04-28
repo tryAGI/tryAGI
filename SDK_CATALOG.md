@@ -38,7 +38,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `APITemplate/`, `Gamma/`, `PDF4Dev/`, `Presenton/`
 
 **Audio / Speech:**
-`AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `Murf/`, `RetellAI/`, `RevAI/`, `Speechmatics/`, `Ultravox/`, `Vapi/`
+`AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `MiniMax/`, `Murf/`, `PlayHT/`, `ResembleAI/`, `RetellAI/`, `RevAI/`, `Revocalize/`, `Reverie/`, `Rime/`, `Speechify/`, `Speechmatics/`, `Ultravox/`, `Vapi/`, `VoiceAI/`
 
 **Search / RAG / Embeddings:**
 `Algolia/`, `BraveSearch/`, `Exa/`, `GroundX/`, `Jina/`, `Mixedbread/`, `Nomic/`, `Serper/`, `Tavily/`, `Vectara/`, `VoyageAI/`
@@ -104,7 +104,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `Zoo/`
 
 **AI Video/Audio Editing:**
-`Descript/`
+`Descript/`, `Revocalize/`
 
 **Prompt Management / Evaluation:**
 `Humanloop/`, `PromptLayer/`, `Vellum/`
@@ -116,7 +116,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `Baseten/`, `Predibase/`
 
 **AI Music Generation:**
-`Loudly/`
+`Beatoven/`, `ElevenLabs/`, `Loudly/`, `MiniMax/`, `Mubert/`, `Mureka/`
 
 **Synthetic Data / Privacy:**
 `Gretel/`

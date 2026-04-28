@@ -376,6 +376,16 @@ Reference implementations:
 | `Botpress/` | `AIFunction` tools | 10.4.1 | Full (`AsListBotsTool()` + `AsGetBotTool()` + `AsListConversationsTool()` + `AsListMessagesTool()` + `AsGetBotAnalyticsTool()` wrappers for use with any `IChatClient`) |
 | `AI/` | Consumer | 10.4.1 | Uses MEAI + `Microsoft.Extensions.AI.OpenAI` |
 
+## New Generation SDKs Pending MEAI Review
+
+These SDKs expand generation coverage but do not currently include hand-written MEAI adapters:
+
+- `Beatoven/`, `Mubert/`, `Mureka/` — AI music generation; no standard MEAI interface for music generation.
+- `MiniMax/` — media generation SDK for video, music, TTS, voice clone, and files; chat/embeddings remain available via `CustomProviders.Minimax()` in `tryAGI.OpenAI`.
+- `PlayHT/`, `Rime/`, `Speechify/`, `VoiceAI/` — text-to-speech or voice APIs; .NET MEAI currently has `ISpeechToTextClient` but no standard text-to-speech abstraction.
+- `ResembleAI/`, `Revocalize/` — voice cloning, synthesis, watermarking, and conversion APIs; no single matching MEAI abstraction.
+- `Reverie/` — language AI APIs including STT, TTS, translation, and transliteration; possible future `ISpeechToTextClient` candidate, but no adapter has been implemented.
+
 ## Not Applicable — No Matching MEAI Interface
 
 These SDKs have no applicable MEAI interface and are not expected to implement one:
