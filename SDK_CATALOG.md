@@ -32,7 +32,10 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `Anthropic/`, `Cohere/`, `DeepInfra/`, `Google.Gemini/`, `Mistral/`, `Ollama/`, `OpenAI/`, `PredictionGuard/`, `Reka/`, `SarvamAI/`, `Together/`, `AI21/`, `Upstage/`, `Writer/`, `Writesonic/`, `Xai/`
 
 **Image / Video / 3D Generation:**
-`BlackForestLabs/`, `Creatomate/`, `CsmAi/`, `DId/`, `DoubaoSeed3D/`, `HeyGen/`, `Hedra/`, `Hitem3D/`, `Hyper3D/`, `Ideogram/`, `KlingAI/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `Neural4D/`, `Picsart/`, `Photoroom/`, `Recraft/`, `Replicate/`, `Runware/`, `Runway/`, `Shotstack/`, `Sloyd/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `ThreeDAIStudio/`, `Tripo/`, `Triverse/`, `WaveSpeedAI/`
+`BlackForestLabs/`, `BlockadeLabs/`, `Creatomate/`, `CsmAi/`, `DId/`, `DoubaoSeed3D/`, `HeyGen/`, `Hedra/`, `Hitem3D/`, `Hyper3D/`, `Ideogram/`, `KlingAI/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `Neural4D/`, `Picsart/`, `Photoroom/`, `Recraft/`, `Replicate/`, `Runware/`, `Runway/`, `Shotstack/`, `Sloyd/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `ThreeDAIStudio/`, `Tripo/`, `Triverse/`, `WaveSpeedAI/`, `WorldLabs/`
+
+**Document / Presentation / PDF Generation:**
+`APITemplate/`, `Gamma/`, `PDF4Dev/`, `Presenton/`
 
 **Audio / Speech:**
 `AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `Murf/`, `RetellAI/`, `RevAI/`, `Speechmatics/`, `Ultravox/`, `Vapi/`
@@ -47,7 +50,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `Chroma/`, `Milvus/`, `Pinecone/`, `Qdrant/`, `Turbopuffer/`, `Weaviate/`
 
 **Generative Media Inference:**
-`Fal/`
+`EachLabs/`, `Fal/`
 
 **Unified AI Inference:**
 `SiliconFlow/`
@@ -83,7 +86,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `BlandAI/`, `HammingAI/`
 
 **AI Agents / Coding:**
-`CursorAgents/`
+`CursorAgents/`, `V0/`
 
 **Code Intelligence:**
 `Greptile/`
@@ -96,6 +99,9 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 
 **Time Series AI:**
 `Nixtla/`
+
+**CAD Generation:**
+`Zoo/`
 
 **AI Video/Audio Editing:**
 `Descript/`
