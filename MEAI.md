@@ -89,6 +89,33 @@ These providers get `IChatClient` + `IEmbeddingGenerator` through `CustomProvide
 | LeptonAI | `CustomProviders.LeptonAI(key)` | (user-selected) |
 | Cleanlab | `CustomProviders.Cleanlab(key)` | (user-selected) |
 | SiliconFlow | `CustomProviders.SiliconFlow(key)` | (user-selected) |
+| Inworld | `CustomProviders.Inworld(keyOrJwt)` | (user-selected) |
+| Nous Portal | `CustomProviders.NousPortal(key)` | `Hermes-4-70B` |
+| Vercel AI Gateway | `CustomProviders.VercelAIGateway(key)` | `xai/grok-4.1-fast-reasoning` |
+| Hugging Face Inference Providers | `CustomProviders.HuggingFaceRouter(key)` | `deepseek-ai/DeepSeek-V3-0324` |
+| Google AI Studio / Gemini OpenAI-compatible | `CustomProviders.GoogleAIStudio(key)` / `CustomProviders.Gemini(key)` | `gemini-2.5-flash` |
+| Xiaomi MiMo | `CustomProviders.XiaomiMiMo(key)` | `mimo-v2.5-pro` |
+| Tencent TokenHub | `CustomProviders.TencentTokenHub(key)` | `hy3-preview` |
+| Tencent TokenHub Intl | `CustomProviders.TencentTokenHubIntl(key)` | `glm-5` |
+| Z.AI / Zhipu GLM | `CustomProviders.ZAi(key)` | `glm-4.6` |
+| Kimi / Moonshot | `CustomProviders.Moonshot(key)` | `kimi-k2.5` |
+| Kimi Coding Plan | `CustomProviders.KimiForCoding(key)` | `kimi-for-coding` |
+| Kimi / Moonshot China | `CustomProviders.MoonshotChina(key)` | `kimi-k2.6` |
+| StepFun | `CustomProviders.StepFun(key)` | `step-2-mini` |
+| StepFun Step Plan | `CustomProviders.StepFunStepPlan(key)` | `step-3` |
+| MiniMax China | `CustomProviders.MiniMaxChina(key)` | `MiniMax-M2.7` |
+| DashScope Intl | `CustomProviders.DashScope(key)` | `qwen-plus` |
+| DashScope China | `CustomProviders.DashScopeChina(key)` | `qwen-plus` |
+| DashScope United States | `CustomProviders.DashScopeUnitedStates(key)` | `qwen-plus-us` |
+| Alibaba Cloud Coding Plan | `CustomProviders.DashScopeCodingPlan(key)` | `qwen3-coder-plus` |
+| Arcee AI | `CustomProviders.ArceeAI(key)` | `trinity-mini` |
+| Arcee Conductor | `CustomProviders.ArceeConductor(key)` | `auto` |
+| GMI Cloud | `CustomProviders.GmiCloud(key)` | `deepseek-ai/DeepSeek-R1` |
+| Kilo Gateway | `CustomProviders.KiloGateway(key)` | `kilocode/kilo/auto` |
+| OpenCode Zen | `CustomProviders.OpenCodeZen(key)` | `qwen3.5-plus` |
+| OpenCode Go | `CustomProviders.OpenCodeGo(key)` | `kimi-k2.6` |
+
+OAuth-only or local-tool surfaces such as OpenAI Codex OAuth, Qwen OAuth, Google Gemini OAuth/Code Assist, GitHub Copilot, and GitHub Copilot ACP are intentionally not exposed as `CustomProviders` defaults. They depend on local accounts, local CLIs, or ACP process transport rather than a stable bearer-token HTTP base URL. AWS Bedrock also stays outside `CustomProviders` because it requires AWS SigV4/IAM/native Bedrock invocation rather than a simple OpenAI-compatible bearer endpoint.
 
 ## MEAI Version
 
@@ -466,4 +493,4 @@ These SDKs have no applicable MEAI interface and are not expected to implement o
 - `Botpress/` — AI chatbot/agent platform (`AIFunction` tools for bot/conversation/message management; no standard MEAI interface like IChatClient/ISpeechToTextClient)
 - `Firecrawl/`, `Flowise/`, `Forem/`, `Instill/`, `LangSmith/` — Platform/orchestration (no matching interface)
 
-**Note:** OpenAI-compatible providers (Groq, DeepInfra, Fireworks, Together, SambaNova, Cerebras, Hyperbolic, Perplexity, Codestral, XAi, Nvidia, Ollama Cloud, SiliconFlow, etc.) get MEAI support via `CustomProviders.*()` factory methods in `tryAGI.OpenAI` — no standalone MEAI implementation needed in their individual SDKs.
+**Note:** OpenAI-compatible providers (Groq, DeepInfra, Fireworks, Together, SambaNova, Cerebras, Hyperbolic, Perplexity, Codestral, XAi, Nvidia, Ollama Cloud, SiliconFlow, Vercel AI Gateway, Hugging Face Router, Google AI Studio, Moonshot, Z.AI, Tencent TokenHub, DashScope, StepFun, Arcee, GMI Cloud, Kilo Gateway, OpenCode, etc.) get MEAI support via `CustomProviders.*()` factory methods in `tryAGI.OpenAI` — no standalone MEAI implementation needed in their individual SDKs.
