@@ -115,7 +115,7 @@ These providers get `IChatClient` + `IEmbeddingGenerator` through `CustomProvide
 | OpenCode Zen | `CustomProviders.OpenCodeZen(key)` | `qwen3.5-plus` |
 | OpenCode Go | `CustomProviders.OpenCodeGo(key)` | `kimi-k2.6` |
 
-OAuth-only or local-tool surfaces such as OpenAI Codex OAuth, Qwen OAuth, Google Gemini OAuth/Code Assist, GitHub Copilot, and GitHub Copilot ACP are intentionally not exposed as `CustomProviders` defaults. They depend on local accounts, local CLIs, or ACP process transport rather than a stable bearer-token HTTP base URL. AWS Bedrock also stays outside `CustomProviders` because it requires AWS SigV4/IAM/native Bedrock invocation rather than a simple OpenAI-compatible bearer endpoint.
+OAuth-only or local-tool surfaces such as OpenAI Codex OAuth, Qwen OAuth, Google Gemini OAuth/Code Assist, GitHub Copilot, and GitHub Copilot ACP are intentionally not exposed as `CustomProviders` defaults. They depend on local accounts, local CLIs, or ACP process transport rather than a stable bearer-token HTTP base URL. AWS Bedrock is covered by the standalone `AwsBedrock/` SDK for the current Bedrock OpenAI-compatible bearer-key APIs; IAM/SigV4-native Bedrock runtime calls remain outside `CustomProviders`.
 
 ## MEAI Version
 
@@ -408,6 +408,9 @@ Reference implementations:
 These SDKs expand generation coverage but do not currently include hand-written MEAI adapters:
 
 - `Beatoven/`, `Mubert/`, `Mureka/` — AI music generation; no standard MEAI interface for music generation.
+- `AwsBedrock/` — Amazon Bedrock OpenAI-compatible Models, Responses, and Chat Completions APIs; no standalone MEAI adapter yet.
+- `DashScope/` — native Alibaba Cloud Model Studio text, multimodal, image, and embedding APIs; OpenAI-compatible chat remains available via `CustomProviders.DashScope*()` in `tryAGI.OpenAI`.
+- `Moonshot/`, `TencentTokenHub/`, `StepFun/`, `ZAI/`, `Arcee/` — direct generated SDKs for provider-native or provider-documented APIs; chat access also remains available via `CustomProviders.*()` where OpenAI-compatible endpoints are sufficient.
 - `MiniMax/` — media generation SDK for video, music, TTS, voice clone, and files; chat/embeddings remain available via `CustomProviders.Minimax()` in `tryAGI.OpenAI`.
 - `PlayHT/`, `Rime/`, `Speechify/`, `VoiceAI/` — text-to-speech or voice APIs; .NET MEAI currently has `ISpeechToTextClient` but no standard text-to-speech abstraction.
 - `ResembleAI/`, `Revocalize/` — voice cloning, synthesis, watermarking, and conversion APIs; no single matching MEAI abstraction.

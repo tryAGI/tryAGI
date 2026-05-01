@@ -29,19 +29,19 @@ Full list of all projects in the tryAGI workspace, organized by category.
 All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.md](CLAUDE.md)). Each wraps a provider's OpenAPI spec into a typed C# client.
 
 **LLM / Text Generation:**
-`Anthropic/`, `Cohere/`, `DeepInfra/`, `Google.Gemini/`, `Mistral/`, `Ollama/`, `OpenAI/`, `PredictionGuard/`, `Reka/`, `SarvamAI/`, `Together/`, `AI21/`, `Upstage/`, `Writer/`, `Writesonic/`, `Xai/`
+`Anthropic/`, `Arcee/`, `AwsBedrock/`, `Cohere/`, `DashScope/`, `DeepInfra/`, `Google.Gemini/`, `Mistral/`, `Moonshot/`, `Ollama/`, `OpenAI/`, `PredictionGuard/`, `Reka/`, `SarvamAI/`, `StepFun/`, `TencentTokenHub/`, `Together/`, `AI21/`, `Upstage/`, `Writer/`, `Writesonic/`, `Xai/`, `ZAI/`
 
 **Image / Video / 3D Generation:**
-`BlackForestLabs/`, `BlockadeLabs/`, `Creatomate/`, `CsmAi/`, `DId/`, `DoubaoSeed3D/`, `HeyGen/`, `Hedra/`, `Hitem3D/`, `Hyper3D/`, `Ideogram/`, `KlingAI/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `Neural4D/`, `Picsart/`, `Photoroom/`, `Recraft/`, `Replicate/`, `Runware/`, `Runway/`, `Shotstack/`, `Sloyd/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `ThreeDAIStudio/`, `Tripo/`, `Triverse/`, `WaveSpeedAI/`, `WorldLabs/`
+`BlackForestLabs/`, `BlockadeLabs/`, `Creatomate/`, `CsmAi/`, `DashScope/`, `DId/`, `DoubaoSeed3D/`, `HeyGen/`, `Hedra/`, `Hitem3D/`, `Hyper3D/`, `Ideogram/`, `KlingAI/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `Neural4D/`, `Picsart/`, `Photoroom/`, `Recraft/`, `Replicate/`, `Runware/`, `Runway/`, `Shotstack/`, `Sloyd/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `ThreeDAIStudio/`, `Tripo/`, `Triverse/`, `WaveSpeedAI/`, `WorldLabs/`, `ZAI/`
 
 **Document / Presentation / PDF Generation:**
 `APITemplate/`, `Gamma/`, `PDF4Dev/`, `Presenton/`
 
 **Audio / Speech:**
-`AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `MiniMax/`, `Murf/`, `PlayHT/`, `ResembleAI/`, `RetellAI/`, `RevAI/`, `Revocalize/`, `Reverie/`, `Rime/`, `Speechify/`, `Speechmatics/`, `Ultravox/`, `Vapi/`, `VoiceAI/`
+`AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `MiniMax/`, `Murf/`, `PlayHT/`, `ResembleAI/`, `RetellAI/`, `RevAI/`, `Revocalize/`, `Reverie/`, `Rime/`, `Speechify/`, `Speechmatics/`, `StepFun/`, `Ultravox/`, `Vapi/`, `VoiceAI/`, `ZAI/`
 
 **Search / RAG / Embeddings:**
-`Algolia/`, `BraveSearch/`, `Exa/`, `GroundX/`, `Jina/`, `Mixedbread/`, `Nomic/`, `Serper/`, `Tavily/`, `Vectara/`, `VoyageAI/`
+`Algolia/`, `BraveSearch/`, `DashScope/`, `Exa/`, `GroundX/`, `Jina/`, `Mixedbread/`, `Nomic/`, `Serper/`, `Tavily/`, `Vectara/`, `VoyageAI/`
 
 **Web Scraping / Data Extraction:**
 `Apify/`, `ScrapeGraphAI/`
@@ -56,7 +56,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `SiliconFlow/`
 
 **AI Gateway / Routing:**
-`EdenAI/`, `Martian/`, `OpenRouter/`, `Portkey/`
+`AwsBedrock/`, `EdenAI/`, `Martian/`, `OpenRouter/`, `Portkey/`, `TencentTokenHub/`
 
 **Observability / Evaluation:**
 `Helicone/`, `Langfuse/`, `Opik/`, `Phoenix/`, `Weave/`
