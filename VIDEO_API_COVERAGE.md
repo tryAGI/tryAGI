@@ -22,7 +22,7 @@ This file tracks the video-generation benchmark rows against tryAGI SDK coverage
 | Vidu | `Vidu` | Vidu Q1, Q2, Q2 Pro/Turbo, Q3 Pro | Existing manual spec covers text-to-video, image-to-video, reference/start-end/template video, lip-sync, upscale, task status, and cancel endpoints. |
 | KlingAI | `KlingAI` | Kling 1.0, 1.5, 1.6, 2.0, 2.1 | Existing direct SDK covers older official model enums. Current-list rows for Kling 2.5, 2.6, O1, and 3.0 are covered through `Krea`; direct `KlingAI` should be refreshed only from official provider docs/spec. |
 | Google | `Google.Gemini` | Veo 2, Veo 3, Veo 3.1, Veo 3.1 Fast/Lite, Veo 3 Fast Preview | Google documents Veo video generation in the Gemini API. |
-| Runway | `Runway` | Gen 3 Alpha Turbo (`gen3a_turbo`), Gen-4, Gen-4.5/current Runway API video models | Existing SDK is generated from Runway's official OpenAPI and includes current video models such as `gen4_turbo`, `gen4_aleph`, `gen4.5`, `gen3a_turbo`, and hosted Veo models. |
+| Runway | `Runway` | Gen 3 Alpha Turbo (`gen3a_turbo`), Gen-4/current Runway API video models | Existing SDK is generated from Runway's official OpenAPI and includes current video models such as `gen4_turbo`, `gen4_aleph`, `gen3a_turbo`, and hosted Veo models. The benchmark's Gen-4.5 row is not direct Runway SDK coverage in the current local spec. |
 | MiniMax | `MiniMax` | Hailuo 02 Fast/Standard/Pro, Hailuo 2.3, Hailuo 2.3 Fast, T2V-01, T2V-01-Director | Existing SDK covers `/v1/video_generation` and task query endpoints. |
 | Luma Labs | `Luma` | Ray family | Existing SDK covers Dream Machine video generation/editing/upscale endpoints. Verify exact Ray 1/2/3 model names against current docs before marking all benchmark aliases exact. |
 | Leonardo.Ai | `Leonardo` | Motion 2.0 | Existing SDK includes Leonardo API coverage; verify current Motion model naming before marking as exact. |
@@ -54,6 +54,7 @@ This file tracks the video-generation benchmark rows against tryAGI SDK coverage
 | Midjourney V1 | Blocked | Listed as "No API available"; no official public API/SDK for programmatic generation. |
 | HiDream Vivago 2.0 | Blocked | Listed as "No API available"; no public API docs found. |
 | Moonvalley Marey | Blocked | No public API docs found. |
+| Runway Gen-4.5 | Blocked direct / covered via `Krea` | Listed as "No API available" in the benchmark. The current local Runway OpenAPI does not expose `gen4.5`, while Krea provides aggregator coverage for this model label. |
 | OpenAI legacy Sora row | Blocked as legacy label / superseded | Current OpenAI API coverage is Sora 2 and Sora 2 Pro. The benchmark row named only `Sora` and marked "No API available" should not be treated as an exact current API model. |
 | Luma Ray 1 | Blocked as legacy / coming soon row | Existing `Luma` SDK covers Dream Machine/Ray-family API surfaces, but this exact legacy benchmark label is listed as "Coming soon" and should be verified before exact mapping. |
 
