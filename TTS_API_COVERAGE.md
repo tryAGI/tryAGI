@@ -15,6 +15,7 @@ HTTP API contract.
 | Smallest.ai | `SmallestAI/` | Official OpenAPI document at `https://docs.smallest.ai/openapi.yaml?api=148120e3-2d93-487e-9a21-5704cd2be0c4`. |
 | Gradium | `Gradium/` | Official OpenAPI document at `https://docs.gradium.ai/api-reference/openapi.json`. |
 | Async Voice API | `AsyncAI/` | Manual OpenAPI assembled from the provider's public endpoint-level OpenAPI snippets in `https://docs.async.com/llms.txt`. |
+| Neuphonic | `Neuphonic/` | Manual OpenAPI assembled from the provider's public docs, official Python/JavaScript SDKs, and the live FastAPI OpenAPI surface at `https://api.neuphonic.com/openapi.json`. |
 
 ## Provider Coverage
 
@@ -47,7 +48,7 @@ HTTP API contract.
 | Rime Arcana / Mist | `Rime/` | Existing direct SDK. |
 | Zyphra Zonos | Blocked for direct SDK | Public package/model references exist, but no public OpenAPI or endpoint-level API reference was found. Use hosted/open-weight paths until Zyphra publishes a stable public contract. |
 | LMNT | `LMNT/` | New direct SDK. |
-| Neuphonic TTS | Candidate | Public docs and SDKs exist, but no downloadable OpenAPI document was found. A hand-maintained OpenAPI spec can be added in a follow-up pass from the documented SSE/voice endpoints. |
+| Neuphonic TTS | `Neuphonic/` | New direct SDK from a focused manual OpenAPI spec covering SSE TTS, voices, and agent management. The live FastAPI OpenAPI exists but lacks useful response schemas/security, so the checked-in spec is typed from official docs and SDKs. |
 | Alibaba Qwen TTS | `DashScope/` / hosted open-weight SDKs | Existing Alibaba DashScope SDK is the first path to check for hosted Qwen APIs; open-weight variants are hosted-model coverage. |
 | Murf Speech / Falcon | `Murf/` | Existing direct SDK. |
 | OpenVoice | Hosted/open-weight coverage | Open-weight model; no first-party hosted API contract. |
@@ -83,4 +84,9 @@ For any blocked entry, the minimum SDK intake criteria are:
 - Azure Speech text-to-speech REST reference: <https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech>
 - Amazon Polly API reference: <https://docs.aws.amazon.com/polly/latest/dg/API_Reference.html>
 - Neuphonic docs: <https://docs.neuphonic.com/>
+- Neuphonic text-to-speech docs: <https://docs.neuphonic.com/build-group/text-to-speech>
+- Neuphonic voice cloning docs: <https://docs.neuphonic.com/build-group/voice-cloning>
+- Neuphonic live FastAPI OpenAPI: <https://api.neuphonic.com/openapi.json>
+- Neuphonic Python SDK: <https://github.com/neuphonic/pyneuphonic>
+- Neuphonic JavaScript SDK: <https://github.com/neuphonic/neuphonic-js>
 - Zyphra package reference: <https://pypi.org/project/zyphra/>
