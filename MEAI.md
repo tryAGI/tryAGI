@@ -11,6 +11,7 @@ This document provides a single source of truth for MEAI interface implementatio
 | [Anthropic](https://github.com/tryAGI/Anthropic) | Y | - | - | - | No |
 | [Ollama](https://github.com/tryAGI/Ollama) | Y | Y | - | - | No |
 | [OpenAI](https://github.com/tryAGI/OpenAI) | Y | Y | - | - | Yes (`Meai`) |
+| [Gonka](https://github.com/tryAGI/Gonka) | Y | - | - | - | No |
 | [Google.Gemini](https://github.com/tryAGI/Google_Generative_AI) | Y | Y | - | - | No |
 | [Mistral](https://github.com/tryAGI/Mistral) | Y | - | - | - | Yes (`Meai`) |
 | [Cohere](https://github.com/tryAGI/Cohere) | Y | Y | - | - | Yes (`Meai`) |
@@ -235,6 +236,7 @@ Each SDK has a dedicated MEAI guide page in its mkdocs documentation:
 | SDK | Guide |
 |-----|-------|
 | OpenAI | `docs/guides/meai.md` |
+| Gonka | `docs/guides/meai.md` |
 | Ollama | `docs/guides/meai.md` |
 | Anthropic | `docs/guides/meai.md` |
 | Google.Gemini | `docs/guides/meai.md` |
@@ -316,6 +318,7 @@ Reference implementations:
 | `Jina/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, multimodal extensions for images/PDFs) |
 | `VoyageAI/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, token usage) |
 | `OpenAI/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, JSON/structured output, temp/topP/seed, AdditionalProperties pass-through) / Full (embeddings with dimensions) |
+| `Gonka/` | `IChatClient` | 10.5.0 | Full (text, streaming, tools, image URL/data content, JSON response-format hints; direct network signing) |
 | `Coze/` | `IChatClient` | 10.4.1 | Partial (text, streaming, reasoning text; bot-centric chat requiring `bot_id` and `user_id`; provider-issued tool calls are not yet emitted as `FunctionCallContent`) |
 | `Tavily/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsExtractTool()` wrappers for use with any `IChatClient`) |
 | `DeepInfra/` | `IChatClient` + `IEmbeddingGenerator` (via `tryAGI.OpenAI`) | 10.4.1 | Full — uses `CustomProviders.DeepInfra()` from `tryAGI.OpenAI` (OpenAI-compatible API) |

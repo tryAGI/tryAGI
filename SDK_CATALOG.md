@@ -29,7 +29,7 @@ Full list of all projects in the tryAGI workspace, organized by category.
 All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.md](CLAUDE.md)). Each wraps a provider's OpenAPI spec into a typed C# client.
 
 **LLM / Text Generation:**
-`Anthropic/`, `Arcee/`, `AwsBedrock/`, `Cohere/`, `DashScope/`, `DeepInfra/`, `Google.Gemini/`, `Mistral/`, `Moonshot/`, `Ollama/`, `OpenAI/`, `PredictionGuard/`, `Reka/`, `SarvamAI/`, `StepFun/`, `TencentTokenHub/`, `Together/`, `AI21/`, `Upstage/`, `Writer/`, `Writesonic/`, `Xai/`, `ZAI/`
+`Anthropic/`, `Arcee/`, `AwsBedrock/`, `Cohere/`, `DashScope/`, `DeepInfra/`, `Gonka/`, `Google.Gemini/`, `Mistral/`, `Moonshot/`, `Ollama/`, `OpenAI/`, `PredictionGuard/`, `Reka/`, `SarvamAI/`, `StepFun/`, `TencentTokenHub/`, `Together/`, `AI21/`, `Upstage/`, `Writer/`, `Writesonic/`, `Xai/`, `ZAI/`
 
 **Image / Video / 3D Generation:**
 `BlackForestLabs/`, `BlockadeLabs/`, `BytePlusModelArk/`, `Creatomate/`, `CsmAi/`, `DashScope/`, `DId/`, `DoubaoSeed3D/`, `EigenAI/`, `HeyGen/`, `Hedra/`, `Hitem3D/`, `Hyper3D/`, `Ideogram/`, `ImagineArt/`, `KlingAI/`, `Krea/`, `Leonardo/`, `Luma/`, `MagicHour/`, `Meshcapade/`, `Meshy/`, `MicrosoftFoundry/`, `Neural4D/`, `Picsart/`, `Photoroom/`, `Pruna/`, `Recraft/`, `Replicate/`, `Reve/`, `Runware/`, `Runway/`, `Shotstack/`, `Sloyd/`, `StabilityAI/`, `Synthesia/`, `Tavus/`, `ThreeDAIStudio/`, `Tripo/`, `Triverse/`, `WaveSpeedAI/`, `WorldLabs/`, `ZAI/`
