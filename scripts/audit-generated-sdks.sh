@@ -249,18 +249,61 @@ load_config() {
   fi
 }
 
+repo_autosdk_bootstrap_info() {
+  local repo="$1"
+
+  python3 - <<'PY' "$ROOT_DIR" "$repo"
+from pathlib import Path
+import re
+import sys
+
+root_dir, repo = sys.argv[1:]
+repo_dir = Path(root_dir) / repo
+scripts = sorted(repo_dir.glob("src/libs/*/generate.sh"))
+
+if not scripts:
+    print("missing-generate-script\t")
+    raise SystemExit(0)
+
+pattern = re.compile(
+    r"dotnet\s+tool\s+(install|update)\s+--global\s+autosdk\.cli\b",
+    re.IGNORECASE | re.DOTALL,
+)
+missing = []
+
+for script in scripts:
+    text = script.read_text(encoding="utf-8", errors="replace")
+    if not pattern.search(text):
+        missing.append(str(script.relative_to(repo_dir)))
+
+status = "ok" if not missing else "missing-bootstrap"
+details = ",".join(missing)
+print(f"{status}\t{details}")
+PY
+}
+
 write_settings_report() {
   local output_path="$OUT_DIR/generated-sdk-settings.tsv"
   local repo
   local api_target
+  local settings_row
+  local bootstrap_info
+  local bootstrap_status
+  local bootstrap_details
 
   mkdir -p "$OUT_DIR"
-  printf 'repo\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\n' > "$output_path"
+  printf 'repo\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\tautosdk_bootstrap_status\tautosdk_bootstrap_details\n' > "$output_path"
 
   while IFS= read -r repo; do
     api_target="$(repo_api_target "$repo")"
-    if ! gh api "repos/$api_target" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv' >> "$output_path" 2>/dev/null; then
-      printf '%s\tunknown\tunknown\tunknown\n' "$repo" >> "$output_path"
+    bootstrap_info="$(repo_autosdk_bootstrap_info "$repo")"
+    bootstrap_status="$(cut -f1 <<< "$bootstrap_info")"
+    bootstrap_details="$(cut -f2- <<< "$bootstrap_info")"
+
+    if settings_row="$(gh api "repos/$api_target" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv' 2>/dev/null)"; then
+      printf '%s\t%s\t%s\n' "$settings_row" "$bootstrap_status" "$bootstrap_details" >> "$output_path"
+    else
+      printf '%s\tunknown\tunknown\tunknown\t%s\t%s\n' "$repo" "$bootstrap_status" "$bootstrap_details" >> "$output_path"
     fi
   done < <(list_generated_sdk_repos)
 
@@ -501,6 +544,11 @@ non_compliant = sum(
     or row["delete_branch_on_merge"] != "true"
     or row["allow_update_branch"] != "true"
 )
+bootstrap_gaps = [
+    row
+    for row in settings
+    if row.get("autosdk_bootstrap_status") not in {"", "ok"}
+]
 
 workflow_failures = [
     row for row in workflows
@@ -552,6 +600,14 @@ if non_compliant == 0:
 else:
     lines.append(f"{non_compliant} repositories still have non compliant auto merge settings.")
 
+if bootstrap_gaps:
+    lines.append(f"{len(bootstrap_gaps)} repositories are missing an AutoSDK bootstrap step in generate.sh.")
+    for row in bootstrap_gaps[:6]:
+        details = row.get("autosdk_bootstrap_details") or "generate.sh"
+        lines.append(f"{row['repo']} is missing AutoSDK bootstrap in {details}.")
+else:
+    lines.append("All generate scripts include an AutoSDK bootstrap step.")
+
 if workflow_failures:
     lines.append(f"There are {len(workflow_failures)} latest workflow failures that still need attention.")
     for row in workflow_failures[:6]:
@@ -601,12 +657,16 @@ print_summary() {
   local signals_path="${4:-}"
   local repo_count
   local settings_non_compliant
+  local autosdk_bootstrap_gaps
   local auto_update_failures
   local publish_failures
 
   repo_count="$(list_generated_sdk_repos | wc -l | tr -d ' ')"
   settings_non_compliant="$(
     awk -F '\t' 'NR > 1 && $1 != "" && ($2 != "true" || $3 != "true" || $4 != "true") { count++ } END { print count + 0 }' "$settings_path"
+  )"
+  autosdk_bootstrap_gaps="$(
+    awk -F '\t' 'NR > 1 && $1 != "" && $5 != "ok" && $5 != "" { count++ } END { print count + 0 }' "$settings_path"
   )"
   auto_update_failures="$(
     awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 != "success" && $5 != "no-runs" && $5 != "missing-workflow" { count++ } END { print count + 0 }' "$workflows_path"
@@ -617,6 +677,7 @@ print_summary() {
 
   printf 'Generated SDK repos: %s\n' "$repo_count"
   printf 'Non-compliant repo settings: %s\n' "$settings_non_compliant"
+  printf 'AutoSDK bootstrap gaps: %s\n' "$autosdk_bootstrap_gaps"
   printf 'Latest auto-update failures: %s\n' "$auto_update_failures"
   printf 'Latest publish failures: %s\n' "$publish_failures"
   printf 'Settings report: %s\n' "$settings_path"
@@ -646,6 +707,12 @@ print_summary() {
         END { print count + 0 }
       ' "$signals_path"
     )"
+  fi
+
+  if [[ "$autosdk_bootstrap_gaps" != "0" ]]; then
+    echo
+    echo "AutoSDK bootstrap gaps:"
+    awk -F '\t' 'NR > 1 && $5 != "ok" && $5 != "" { printf "  %s\t%s\t%s\n", $1, $5, $6 }' "$settings_path"
   fi
 
   if [[ "$auto_update_failures" != "0" ]]; then

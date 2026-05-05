@@ -57,6 +57,8 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-settings.tsv`
   - One row per detected generated SDK repo
   - `true/false` flags for the three auto-merge related settings
+  - `autosdk_bootstrap_status` reports whether every `src/libs/*/generate.sh` script bootstraps `autosdk.cli`
+  - `autosdk_bootstrap_details` lists any generate scripts that are missing the bootstrap step
 - `generated-sdk-workflows.tsv`
   - Two rows per repo: `auto-update` and `publish`
   - Includes latest run id, conclusion, timestamp, branch, and URL
@@ -103,6 +105,8 @@ Add new keys there when the audit grows. The script treats the config as the def
   - Bot branches will accumulate after merges
 - `allow_update_branch=false`
   - GitHub will not offer the standard branch update flow on PRs
+- `missing-bootstrap`
+  - A repo has at least one `src/libs/*/generate.sh` script without a `dotnet tool install/update --global autosdk.cli` bootstrap step, so scheduled regeneration may fail on a clean GitHub Actions runner
 - `auto-update` latest run failed
   - Usually spec download drift, generator breakage, or transient upstream/network issues
 - `publish` latest run failed
