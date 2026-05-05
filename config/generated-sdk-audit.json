@@ -2,7 +2,8 @@
   "issue_limit": 100,
   "workflows": {
     "auto_update_file": "auto-update.yml",
-    "publish_file": "dotnet.yml"
+    "publish_file": "dotnet.yml",
+    "new_repo_days": 7
   },
   "signals": {
     "run_limit": 5,

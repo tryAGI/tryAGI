@@ -61,7 +61,9 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - `autosdk_bootstrap_details` lists any generate scripts that are missing the bootstrap step
 - `generated-sdk-workflows.tsv`
   - Two rows per repo: `auto-update` and `publish`
-  - Includes latest run id, conclusion, timestamp, branch, and URL
+  - Includes latest run id, conclusion, timestamp, branch, URL, plus `repo_created_at` and `repo_age_days`
+  - `repo_created_at` and `repo_age_days` are populated for `new-repo-no-runs` and mature `no-runs` rows to explain the classification
+  - `new-repo-no-runs` marks a new repo that still needs its first workflow run during onboarding
 - `generated-sdk-open-issues.tsv`
   - One row per open issue
   - Includes repo, issue number, title, labels, and URL
@@ -79,6 +81,8 @@ Environment knobs:
   - Override the auto-update workflow filename without editing the tracked config
 - `TRYAGI_PUBLISH_WORKFLOW_FILE`
   - Override the publish workflow filename without editing the tracked config
+- `TRYAGI_NEW_REPO_DAYS`
+  - Repo age threshold for classifying `new-repo-no-runs` onboarding gaps instead of mature `no-runs`
 - `TRYAGI_SIGNAL_RUN_LIMIT`
   - How many recent `Publish` runs are searched to find the latest completed run for log inspection
 - `TRYAGI_SIGNAL_SKIP_IGNORE_REGEX`
@@ -92,6 +96,7 @@ The tracked config file currently controls:
 - `issue_limit`
 - `workflows.auto_update_file`
 - `workflows.publish_file`
+- `workflows.new_repo_days`
 - `signals.run_limit`
 - `signals.ignored_skip_signal_repos`
 
@@ -113,6 +118,10 @@ Add new keys there when the audit grows. The script treats the config as the def
   - Usually build/test regressions, package id collisions, or NuGet credential/package ownership issues
 - `api-error` in workflow or signal reports
   - GitHub API lookup failed, often because of rate limits or a transient GitHub-side error
+- `new-repo-no-runs`
+  - Workflow file exists, but the repository is still within the onboarding age window and has not recorded its first run yet; see `repo_created_at` and `repo_age_days` in the workflow TSV
+- `no-runs`
+  - Workflow file exists, but a mature repository still has no recorded runs and needs attention; see `repo_created_at` and `repo_age_days` in the workflow TSV
 - Non-zero `warning_lines`
   - The latest publish run emitted warning lines worth checking
 - Non-zero `skipped_tests`

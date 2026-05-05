@@ -5,9 +5,11 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ORG="${TRYAGI_ORG:-tryAGI}"
 CONFIG_PATH="${TRYAGI_AUDIT_CONFIG_PATH:-$ROOT_DIR/config/generated-sdk-audit.json}"
 OUT_DIR="${TRYAGI_AUDIT_OUT_DIR:-/tmp/tryagi-sdk-audit}"
+AUDIT_ENV_FILE="${TRYAGI_AUDIT_ENV_FILE:-}"
 ISSUE_LIMIT="${TRYAGI_ISSUE_LIMIT:-100}"
 AUTO_UPDATE_WORKFLOW_FILE="${TRYAGI_AUTO_UPDATE_WORKFLOW_FILE:-auto-update.yml}"
 PUBLISH_WORKFLOW_FILE="${TRYAGI_PUBLISH_WORKFLOW_FILE:-dotnet.yml}"
+NEW_REPO_DAYS="${TRYAGI_NEW_REPO_DAYS:-7}"
 SIGNAL_RUN_LIMIT="${TRYAGI_SIGNAL_RUN_LIMIT:-5}"
 SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-^(OpenAI)$}"
 MODE="summary"
@@ -32,9 +34,11 @@ Options:
   --config PATH  Override the audit config file. Default: config/generated-sdk-audit.json
 
 Environment:
+  TRYAGI_AUDIT_ENV_FILE            Optional env file to source before running the audit.
   TRYAGI_AUDIT_CONFIG_PATH         Override the audit config file path.
   TRYAGI_AUTO_UPDATE_WORKFLOW_FILE Override the auto-update workflow file. Default: auto-update.yml
   TRYAGI_PUBLISH_WORKFLOW_FILE     Override the publish workflow file. Default: dotnet.yml
+  TRYAGI_NEW_REPO_DAYS             Repo age threshold for classifying no-runs as onboarding gaps. Default: 7
   TRYAGI_SIGNAL_RUN_LIMIT           How many recent Publish runs to inspect when finding the latest completed run. Default: 5
   TRYAGI_SIGNAL_SKIP_IGNORE_REGEX   Regex for repos whose skipped/inconclusive test counts should be ignored in summaries. Default: ^(OpenAI)$
 EOF
@@ -46,6 +50,46 @@ require_command() {
     echo "Missing required command: $name" >&2
     exit 1
   fi
+}
+
+load_env_file() {
+  local env_path="$1"
+
+  [[ -n "$env_path" ]] || return 0
+  [[ -f "$env_path" ]] || return 0
+
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_path"
+  set +a
+}
+
+load_automation_env() {
+  if [[ -n "$AUDIT_ENV_FILE" ]]; then
+    load_env_file "$AUDIT_ENV_FILE"
+    return
+  fi
+
+  load_env_file "$ROOT_DIR/.env.audit"
+  load_env_file "$ROOT_DIR/.env"
+}
+
+require_github_auth() {
+  if gh auth status >/dev/null 2>&1; then
+    return
+  fi
+
+  cat >&2 <<EOF
+GitHub CLI authentication is unavailable for this audit run.
+The audit requires either:
+  - a working 'gh auth login' session in this execution context, or
+  - a token such as GH_TOKEN provided via the environment or an env file.
+
+For scheduled automations, do not rely on an interactive login shell implicitly loading .env.
+Prefer setting TRYAGI_AUDIT_ENV_FILE to a file that exports GH_TOKEN, or make sure the automation
+can access the same authenticated gh context as your interactive session.
+EOF
+  exit 1
 }
 
 parse_args() {
@@ -169,6 +213,69 @@ latest_completed_run_json() {
   jq -c '[.[] | select(.status == "completed")][0:1]' <<< "$run_json"
 }
 
+repo_created_at() {
+  local repo="$1"
+  local api_target
+  local cache_dir="$OUT_DIR/.cache"
+  local cache_path="$cache_dir/repo-created-at-$repo.txt"
+
+  mkdir -p "$cache_dir"
+
+  if [[ ! -f "$cache_path" ]]; then
+    api_target="$(repo_api_target "$repo")"
+    if ! gh api "repos/$api_target" --jq '.created_at // ""' > "$cache_path" 2>/dev/null; then
+      rm -f "$cache_path"
+      return 1
+    fi
+  fi
+
+  cat "$cache_path"
+}
+
+repo_age_days() {
+  local created_at="$1"
+
+  [[ -n "$created_at" ]] || return 1
+
+  python3 - <<'PY' "$created_at"
+from datetime import datetime, timezone
+import sys
+
+created_at = sys.argv[1]
+created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+age_days = (datetime.now(timezone.utc) - created_dt).total_seconds() / 86400
+print(f"{age_days:.2f}")
+PY
+}
+
+repo_is_new() {
+  local repo="$1"
+  local created_at="${2:-}"
+  local age_days
+
+  if [[ -z "$created_at" ]]; then
+    created_at="$(repo_created_at "$repo" 2>/dev/null || true)"
+  fi
+  [[ -n "$created_at" ]] || return 1
+
+  age_days="$(repo_age_days "$created_at" 2>/dev/null || true)"
+  [[ -n "$age_days" ]] || return 1
+
+  python3 - <<'PY' "$age_days" "$NEW_REPO_DAYS"
+import sys
+
+age_days, max_age_days = sys.argv[1:]
+
+try:
+    age_days = float(age_days)
+    max_age_days = float(max_age_days)
+except ValueError:
+    raise SystemExit(1)
+
+raise SystemExit(0 if age_days <= max_age_days else 1)
+PY
+}
+
 config_value() {
   local jq_path="$1"
 
@@ -231,6 +338,13 @@ load_config() {
     value="$(config_value '.workflows.publish_file')"
     if [[ -n "$value" ]]; then
       PUBLISH_WORKFLOW_FILE="$value"
+    fi
+  fi
+
+  if [[ -z "${TRYAGI_NEW_REPO_DAYS+x}" ]]; then
+    value="$(config_value '.workflows.new_repo_days')"
+    if [[ -n "$value" ]]; then
+      NEW_REPO_DAYS="$value"
     fi
   fi
 
@@ -316,16 +430,34 @@ write_workflow_line() {
   local workflow_file="$3"
   local workflow_path="$ROOT_DIR/$repo/.github/workflows/$workflow_file"
   local run_json
+  local no_run_conclusion="no-runs"
+  local repo_created_at_value=""
+  local repo_age_days_value=""
 
   if [[ ! -f "$workflow_path" ]]; then
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$repo" "$kind" "$workflow_file" "" "missing-workflow" "" "" "" ""
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$kind" "$workflow_file" "" "missing-workflow" "" "" "" "" "" ""
     return
   fi
 
   if ! run_json="$(latest_run_json "$repo" "$workflow_file")"; then
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$repo" "$kind" "$workflow_file" "" "api-error" "" "" "" ""
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$kind" "$workflow_file" "" "api-error" "" "" "" "" "" ""
+    return
+  fi
+
+  if [[ "$(jq 'length' <<< "$run_json")" == "0" ]]; then
+    repo_created_at_value="$(repo_created_at "$repo" 2>/dev/null || true)"
+    if [[ -n "$repo_created_at_value" ]]; then
+      repo_age_days_value="$(repo_age_days "$repo_created_at_value" 2>/dev/null || true)"
+    fi
+
+    if repo_is_new "$repo" "$repo_created_at_value"; then
+      no_run_conclusion="new-repo-no-runs"
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$kind" "$workflow_file" "" "$no_run_conclusion" "" "" "" "" "$repo_created_at_value" "$repo_age_days_value"
     return
   fi
 
@@ -333,23 +465,23 @@ write_workflow_line() {
     --arg repo "$repo" \
     --arg kind "$kind" \
     --arg workflow_file "$workflow_file" \
+    --arg repo_created_at_value "$repo_created_at_value" \
+    --arg repo_age_days_value "$repo_age_days_value" \
     '
-      if length == 0 then
-        [$repo, $kind, $workflow_file, "", "no-runs", "", "", "", ""] | @tsv
-      else
-        .[0] |
-        [
-          $repo,
-          $kind,
-          $workflow_file,
-          (.databaseId | tostring),
-          (.conclusion // ""),
-          (.status // ""),
-          (.createdAt // ""),
-          (.headBranch // ""),
-          (.url // "")
-        ] | @tsv
-      end
+      .[0] |
+      [
+        $repo,
+        $kind,
+        $workflow_file,
+        (.databaseId | tostring),
+        (.conclusion // ""),
+        (.status // ""),
+        (.createdAt // ""),
+        (.headBranch // ""),
+        (.url // ""),
+        $repo_created_at_value,
+        $repo_age_days_value
+      ] | @tsv
     ' <<< "$run_json"
 }
 
@@ -358,7 +490,7 @@ write_workflows_report() {
   local repo
 
   mkdir -p "$OUT_DIR"
-  printf 'repo\tkind\tworkflow_file\trun_id\tconclusion\tstatus\tcreated_at\thead_branch\turl\n' > "$output_path"
+  printf 'repo\tkind\tworkflow_file\trun_id\tconclusion\tstatus\tcreated_at\thead_branch\turl\trepo_created_at\trepo_age_days\n' > "$output_path"
 
   while IFS= read -r repo; do
     write_workflow_line "$repo" "auto-update" "$AUTO_UPDATE_WORKFLOW_FILE" >> "$output_path"
@@ -403,13 +535,14 @@ fetch_run_log() {
   local run_id="$2"
   local api_target
   local log_dir="$OUT_DIR/logs"
+  local cache_dir="$OUT_DIR/.cache"
   local log_path="$log_dir/$repo-$run_id.log"
 
-  mkdir -p "$log_dir"
+  mkdir -p "$log_dir" "$cache_dir"
   api_target="$(repo_api_target "$repo")"
 
   if [[ ! -f "$log_path" ]]; then
-    if ! gh run view "$run_id" --repo "$api_target" --log > "$log_path" 2>/dev/null; then
+    if ! XDG_CACHE_HOME="$cache_dir" gh run view "$run_id" --repo "$api_target" --log > "$log_path" 2>/dev/null; then
       rm -f "$log_path"
       return 1
     fi
@@ -552,8 +685,10 @@ bootstrap_gaps = [
 
 workflow_failures = [
     row for row in workflows
-    if row["conclusion"] not in {"success", "no-runs", "missing-workflow", ""}
+    if row["conclusion"] not in {"success", "new-repo-no-runs", "no-runs", "missing-workflow", ""}
 ]
+workflow_no_runs = [row for row in workflows if row["conclusion"] == "no-runs"]
+workflow_onboarding_gaps = [row for row in workflows if row["conclusion"] == "new-repo-no-runs"]
 
 issue_counts = Counter(row["repo"] for row in issues if row["repo"])
 total_issues = sum(issue_counts.values())
@@ -614,7 +749,15 @@ if workflow_failures:
         lines.append(
             f"{row['repo']} has a failed {row['kind']} run."
         )
-else:
+if workflow_no_runs:
+    lines.append(f"There are {len(workflow_no_runs)} mature workflow entries with no recorded runs yet.")
+    for row in workflow_no_runs[:6]:
+        lines.append(f"{row['repo']} has no runs yet for {row['kind']}.")
+if workflow_onboarding_gaps:
+    lines.append(f"There are {len(workflow_onboarding_gaps)} onboarding workflow gaps for newly created repositories.")
+    for row in workflow_onboarding_gaps[:6]:
+        lines.append(f"{row['repo']} is newly created and has no runs yet for {row['kind']}.")
+if not workflow_failures and not workflow_no_runs and not workflow_onboarding_gaps:
     lines.append("Latest regeneration and publish runs are clean.")
 
 if total_issues == 0:
@@ -658,7 +801,11 @@ print_summary() {
   local repo_count
   local settings_non_compliant
   local autosdk_bootstrap_gaps
+  local auto_update_onboarding_gaps
+  local auto_update_no_runs
   local auto_update_failures
+  local publish_onboarding_gaps
+  local publish_no_runs
   local publish_failures
 
   repo_count="$(list_generated_sdk_repos | wc -l | tr -d ' ')"
@@ -668,17 +815,33 @@ print_summary() {
   autosdk_bootstrap_gaps="$(
     awk -F '\t' 'NR > 1 && $1 != "" && $5 != "ok" && $5 != "" { count++ } END { print count + 0 }' "$settings_path"
   )"
+  auto_update_onboarding_gaps="$(
+    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 == "new-repo-no-runs" { count++ } END { print count + 0 }' "$workflows_path"
+  )"
+  auto_update_no_runs="$(
+    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 == "no-runs" { count++ } END { print count + 0 }' "$workflows_path"
+  )"
   auto_update_failures="$(
-    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 != "success" && $5 != "no-runs" && $5 != "missing-workflow" { count++ } END { print count + 0 }' "$workflows_path"
+    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 != "success" && $5 != "new-repo-no-runs" && $5 != "no-runs" && $5 != "missing-workflow" && $5 != "" { count++ } END { print count + 0 }' "$workflows_path"
+  )"
+  publish_onboarding_gaps="$(
+    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 == "new-repo-no-runs" { count++ } END { print count + 0 }' "$workflows_path"
+  )"
+  publish_no_runs="$(
+    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 == "no-runs" { count++ } END { print count + 0 }' "$workflows_path"
   )"
   publish_failures="$(
-    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 != "success" && $5 != "no-runs" && $5 != "missing-workflow" { count++ } END { print count + 0 }' "$workflows_path"
+    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 != "success" && $5 != "new-repo-no-runs" && $5 != "no-runs" && $5 != "missing-workflow" && $5 != "" { count++ } END { print count + 0 }' "$workflows_path"
   )"
 
   printf 'Generated SDK repos: %s\n' "$repo_count"
   printf 'Non-compliant repo settings: %s\n' "$settings_non_compliant"
   printf 'AutoSDK bootstrap gaps: %s\n' "$autosdk_bootstrap_gaps"
+  printf 'Latest auto-update onboarding gaps: %s\n' "$auto_update_onboarding_gaps"
+  printf 'Latest auto-update mature no-runs: %s\n' "$auto_update_no_runs"
   printf 'Latest auto-update failures: %s\n' "$auto_update_failures"
+  printf 'Latest publish onboarding gaps: %s\n' "$publish_onboarding_gaps"
+  printf 'Latest publish mature no-runs: %s\n' "$publish_no_runs"
   printf 'Latest publish failures: %s\n' "$publish_failures"
   printf 'Settings report: %s\n' "$settings_path"
   printf 'Workflow report: %s\n' "$workflows_path"
@@ -715,16 +878,40 @@ print_summary() {
     awk -F '\t' 'NR > 1 && $5 != "ok" && $5 != "" { printf "  %s\t%s\t%s\n", $1, $5, $6 }' "$settings_path"
   fi
 
+  if [[ "$auto_update_onboarding_gaps" != "0" ]]; then
+    echo
+    echo "Latest auto-update onboarding gaps:"
+    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 == "new-repo-no-runs" { printf "  %s\t%s\t%s\n", $1, $2, $3 }' "$workflows_path"
+  fi
+
+  if [[ "$auto_update_no_runs" != "0" ]]; then
+    echo
+    echo "Latest auto-update mature no-runs:"
+    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 == "no-runs" { printf "  %s\t%s\t%s\n", $1, $2, $3 }' "$workflows_path"
+  fi
+
   if [[ "$auto_update_failures" != "0" ]]; then
     echo
     echo "Latest auto-update failures:"
-    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 != "success" && $5 != "no-runs" && $5 != "missing-workflow" { printf "  %s\t%s\t%s\n", $1, $5, $9 }' "$workflows_path"
+    awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 != "success" && $5 != "new-repo-no-runs" && $5 != "no-runs" && $5 != "missing-workflow" && $5 != "" { printf "  %s\t%s\t%s\n", $1, $5, $9 }' "$workflows_path"
+  fi
+
+  if [[ "$publish_onboarding_gaps" != "0" ]]; then
+    echo
+    echo "Latest publish onboarding gaps:"
+    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 == "new-repo-no-runs" { printf "  %s\t%s\t%s\n", $1, $2, $3 }' "$workflows_path"
+  fi
+
+  if [[ "$publish_no_runs" != "0" ]]; then
+    echo
+    echo "Latest publish mature no-runs:"
+    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 == "no-runs" { printf "  %s\t%s\t%s\n", $1, $2, $3 }' "$workflows_path"
   fi
 
   if [[ "$publish_failures" != "0" ]]; then
     echo
     echo "Latest publish failures:"
-    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 != "success" && $5 != "no-runs" && $5 != "missing-workflow" { printf "  %s\t%s\t%s\n", $1, $5, $9 }' "$workflows_path"
+    awk -F '\t' 'NR > 1 && $2 == "publish" && $5 != "success" && $5 != "new-repo-no-runs" && $5 != "no-runs" && $5 != "missing-workflow" && $5 != "" { printf "  %s\t%s\t%s\n", $1, $5, $9 }' "$workflows_path"
   fi
 }
 
@@ -739,7 +926,9 @@ main() {
   require_command jq
   require_command python3
   parse_args "$@"
+  load_automation_env
   load_config
+  require_github_auth
 
   case "$MODE" in
     repos)

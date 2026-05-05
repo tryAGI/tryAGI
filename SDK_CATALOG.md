@@ -38,7 +38,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `APITemplate/`, `Gamma/`, `PDF4Dev/`, `Presenton/`
 
 **Audio / Speech:**
-`AssemblyAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Inworld/`, `LalalAI/`, `MiniMax/`, `Murf/`, `PlayHT/`, `ResembleAI/`, `RetellAI/`, `RevAI/`, `Revocalize/`, `Reverie/`, `Rime/`, `Speechify/`, `Speechmatics/`, `StepFun/`, `Ultravox/`, `Vapi/`, `VoiceAI/`, `ZAI/`
+`AssemblyAI/`, `AsyncAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Gradium/`, `Inworld/`, `LalalAI/`, `LMNT/`, `MiniMax/`, `Murf/`, `PlayHT/`, `ResembleAI/`, `RetellAI/`, `RevAI/`, `Revocalize/`, `Reverie/`, `Rime/`, `SmallestAI/`, `Speechify/`, `Speechmatics/`, `StepFun/`, `Ultravox/`, `Vapi/`, `VoiceAI/`, `ZAI/`
 
 **Search / RAG / Embeddings:**
 `Algolia/`, `BraveSearch/`, `DashScope/`, `Exa/`, `GroundX/`, `Jina/`, `Mixedbread/`, `Nomic/`, `Serper/`, `Tavily/`, `Vectara/`, `VoyageAI/`
@@ -116,7 +116,9 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `Baseten/`, `Predibase/`
 
 **AI Music Generation:**
-`Beatoven/`, `ElevenLabs/`, `Loudly/`, `MiniMax/`, `Mubert/`, `Mureka/`
+`Beatoven/`, `ElevenLabs/`, `Google.Gemini/`, `Loudly/`, `MiniMax/`, `Mubert/`, `Mureka/`, `Sonauto/`
+
+`Google.Gemini/` covers Google Lyria music generation, including the Producer.ai / Google Flow Music-style path, through [Gemini API Lyria helpers](https://ai.google.dev/gemini-api/docs/music-generation). Do not create a separate `Producer.ai/` SDK unless Google publishes a first-party Producer.ai or Flow Music API that is distinct from Gemini/Lyria.
 
 **Synthetic Data / Privacy:**
 `Gretel/`
@@ -141,6 +143,25 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 
 **Placeholder / Incomplete:**
 `Groq/`
+
+## 3.1 SDK Candidate Notes
+
+See [`TTS_API_COVERAGE.md`](TTS_API_COVERAGE.md) for the 2026-05-04 text-to-speech provider coverage pass, including new SDKs, existing coverage, hosted/open-weight paths, external official SDKs, and blocked direct SDKs.
+
+**Blocked first-party SDKs:**
+
+| Candidate | Status | Reason / Existing Path |
+|-----------|--------|------------------------|
+| `Producer.ai/` | Blocked | Producer.ai is now a [Google Labs](https://blog.google/innovation-and-ai/models-and-research/google-labs/producerai/) / Google Flow Music product. Use `Google.Gemini/` Lyria helpers for the documented API path unless Google publishes a separate first-party Producer.ai or Flow Music API. |
+| `Udio/` | Blocked | [Udio does not currently offer a public API](https://help.udio.com/en/articles/10756277-udio-public-api). Avoid a first-party `Udio/` SDK until Udio publishes official API documentation. |
+
+**Third-party music gateway candidates:**
+
+| Candidate | Status | Recommendation |
+|-----------|--------|----------------|
+| `AIMusicAPI/` | Viable | Best fit if a third-party music-generation gateway is acceptable. It documents [Producer endpoints](https://docs.aimusicapi.ai/producer-api-overview) plus Sonic/Nuro music workflows; expect a hand-maintained OpenAPI spec unless an official spec becomes available. |
+| `TTAPI/` | Viable but broad | Covers [Producer/Lyria](https://docs.ttapi.io/api/en/producer) and many non-music models. Consider only if a broad unified AI gateway SDK is desired, or scope the generated spec to the Producer endpoints first. |
+| `UdioApiPro/` / `Apiframe/` | Use caution | These expose [Udio-style third-party](https://altrix.udioapi.pro/docs) APIs, but should be named after the gateway provider, not `Udio/`, because Udio itself has no public API. |
 
 ## 4. Applications & Utilities
 
