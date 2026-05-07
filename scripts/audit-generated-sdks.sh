@@ -17,7 +17,7 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|briefing|repos|local-builds] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|briefing|repos|local-builds|local-trims] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   summary    Write settings + workflow TSV reports and print a short summary.
@@ -28,6 +28,7 @@ Modes:
   briefing   Write all reports plus daily-briefing.txt.
   repos      Print the generated SDK repos detected in the current workspace.
   local-builds Build each detected generated SDK solution locally and write generated-sdk-local-builds.tsv.
+  local-trims Run autosdk trim for each detected generated SDK project and write generated-sdk-local-trims.tsv.
 
 Options:
   --repo REGEX   Only include repo names matching the regular expression.
@@ -96,7 +97,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      summary|settings|workflows|issues|signals|briefing|repos|local-builds)
+      summary|settings|workflows|issues|signals|briefing|repos|local-builds|local-trims)
         MODE="$1"
         shift
         ;;
@@ -660,6 +661,20 @@ find_solution_path() {
   fi
 }
 
+find_generated_project_paths() {
+  local repo="$1"
+  local repo_dir="$ROOT_DIR/$repo"
+  local generate_script
+  local project_path
+
+  while IFS= read -r generate_script; do
+    project_path="$(find "$(dirname "$generate_script")" -maxdepth 1 -type f -name '*.csproj' -print | sort | head -n 1)"
+    if [[ -n "$project_path" ]]; then
+      printf '%s\n' "$project_path"
+    fi
+  done < <(find "$repo_dir/src/libs" -mindepth 2 -maxdepth 2 -type f -name generate.sh -print 2>/dev/null | sort)
+}
+
 write_local_builds_report() {
   local output_path="$OUT_DIR/generated-sdk-local-builds.tsv"
   local log_dir="$OUT_DIR/local-build-logs"
@@ -706,6 +721,55 @@ write_local_builds_report() {
   printf '%s\n' "$output_path"
 }
 
+write_local_trims_report() {
+  local output_path="$OUT_DIR/generated-sdk-local-trims.tsv"
+  local log_dir="$OUT_DIR/local-trim-logs"
+  local repo
+  local project_path
+  local relative_project_path
+  local log_path
+  local started_at
+  local ended_at
+  local duration_seconds
+  local exit_code
+  local status
+  local project_count
+
+  mkdir -p "$OUT_DIR" "$log_dir"
+  printf 'repo\tproject\tstatus\texit_code\tduration_seconds\tlog_path\n' > "$output_path"
+
+  while IFS= read -r repo; do
+    project_count=0
+    while IFS= read -r project_path; do
+      project_count=$((project_count + 1))
+      relative_project_path="${project_path#"$ROOT_DIR/$repo/"}"
+      log_path="$log_dir/$repo-${project_count}.log"
+      started_at="$(date +%s)"
+
+      set +e
+      autosdk trim "$project_path" > "$log_path" 2>&1
+      exit_code="$?"
+      set -e
+
+      ended_at="$(date +%s)"
+      duration_seconds="$((ended_at - started_at))"
+      status="success"
+      if [[ "$exit_code" != "0" ]]; then
+        status="failed"
+      fi
+
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$repo" "$relative_project_path" "$status" "$exit_code" "$duration_seconds" "$log_path" >> "$output_path"
+    done < <(find_generated_project_paths "$repo")
+
+    if [[ "$project_count" == "0" ]]; then
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "" "missing-project" "" "" "" >> "$output_path"
+    fi
+  done < <(list_generated_sdk_repos)
+
+  printf '%s\n' "$output_path"
+}
+
 print_local_build_summary() {
   local local_builds_path="$1"
 
@@ -724,6 +788,27 @@ print_local_build_summary() {
     echo
     echo "Local build failures:"
     awk -F '\t' 'NR > 1 && $3 == "failed" { printf "  %s\t%s\t%s\n", $1, $4, $6 }' "$local_builds_path"
+  fi
+}
+
+print_local_trim_summary() {
+  local local_trims_path="$1"
+
+  printf 'Local trim report: %s\n' "$local_trims_path"
+  printf 'Local trim successes: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $3 == "success" { count++ } END { print count + 0 }' "$local_trims_path"
+  )"
+  printf 'Local trim failures: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $3 == "failed" { count++ } END { print count + 0 }' "$local_trims_path"
+  )"
+  printf 'Missing projects: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $3 == "missing-project" { count++ } END { print count + 0 }' "$local_trims_path"
+  )"
+
+  if awk -F '\t' 'NR > 1 && $3 == "failed" { found = 1 } END { exit found ? 0 : 1 }' "$local_trims_path"; then
+    echo
+    echo "Local trim failures:"
+    awk -F '\t' 'NR > 1 && $3 == "failed" { printf "  %s\t%s\t%s\t%s\n", $1, $2, $4, $6 }' "$local_trims_path"
   fi
 }
 
@@ -1007,6 +1092,7 @@ main() {
   local signals_path
   local briefing_path
   local local_builds_path
+  local local_trims_path
 
   require_command jq
   require_command python3
@@ -1014,8 +1100,11 @@ main() {
   load_automation_env
   load_config
 
-  if [[ "$MODE" == "local-builds" ]]; then
+  if [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" ]]; then
     require_command dotnet
+    if [[ "$MODE" == "local-trims" ]]; then
+      require_command autosdk
+    fi
   else
     require_command gh
     require_github_auth
@@ -1040,6 +1129,10 @@ main() {
     local-builds)
       local_builds_path="$(write_local_builds_report)"
       print_local_build_summary "$local_builds_path"
+      ;;
+    local-trims)
+      local_trims_path="$(write_local_trims_report)"
+      print_local_trim_summary "$local_trims_path"
       ;;
     summary)
       settings_path="$(write_settings_report)"
