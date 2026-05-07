@@ -17,7 +17,7 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|briefing|repos] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|briefing|repos|local-builds] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   summary    Write settings + workflow TSV reports and print a short summary.
@@ -27,6 +27,7 @@ Modes:
   signals    Write generated-sdk-log-signals.tsv by scanning the latest completed Publish logs.
   briefing   Write all reports plus daily-briefing.txt.
   repos      Print the generated SDK repos detected in the current workspace.
+  local-builds Build each detected generated SDK solution locally and write generated-sdk-local-builds.tsv.
 
 Options:
   --repo REGEX   Only include repo names matching the regular expression.
@@ -95,7 +96,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      summary|settings|workflows|issues|signals|briefing|repos)
+      summary|settings|workflows|issues|signals|briefing|repos|local-builds)
         MODE="$1"
         shift
         ;;
@@ -642,6 +643,90 @@ write_signals_report() {
   printf '%s\n' "$output_path"
 }
 
+find_solution_path() {
+  local repo="$1"
+  local repo_dir="$ROOT_DIR/$repo"
+  local solution_path
+
+  solution_path="$(find "$repo_dir" -maxdepth 1 -type f -name '*.slnx' -print | sort | head -n 1)"
+  if [[ -n "$solution_path" ]]; then
+    printf '%s\n' "$solution_path"
+    return
+  fi
+
+  solution_path="$(find "$repo_dir" -maxdepth 1 -type f -name '*.sln' -print | sort | head -n 1)"
+  if [[ -n "$solution_path" ]]; then
+    printf '%s\n' "$solution_path"
+  fi
+}
+
+write_local_builds_report() {
+  local output_path="$OUT_DIR/generated-sdk-local-builds.tsv"
+  local log_dir="$OUT_DIR/local-build-logs"
+  local repo
+  local solution_path
+  local relative_solution_path
+  local log_path
+  local started_at
+  local ended_at
+  local duration_seconds
+  local exit_code
+  local status
+
+  mkdir -p "$OUT_DIR" "$log_dir"
+  printf 'repo\tsolution\tstatus\texit_code\tduration_seconds\tlog_path\n' > "$output_path"
+
+  while IFS= read -r repo; do
+    solution_path="$(find_solution_path "$repo")"
+    if [[ -z "$solution_path" ]]; then
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "" "missing-solution" "" "" "" >> "$output_path"
+      continue
+    fi
+
+    relative_solution_path="${solution_path#"$ROOT_DIR/$repo/"}"
+    log_path="$log_dir/$repo.log"
+    started_at="$(date +%s)"
+
+    set +e
+    dotnet build "$solution_path" -c Release --nologo > "$log_path" 2>&1
+    exit_code="$?"
+    set -e
+
+    ended_at="$(date +%s)"
+    duration_seconds="$((ended_at - started_at))"
+    status="success"
+    if [[ "$exit_code" != "0" ]]; then
+      status="failed"
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$relative_solution_path" "$status" "$exit_code" "$duration_seconds" "$log_path" >> "$output_path"
+  done < <(list_generated_sdk_repos)
+
+  printf '%s\n' "$output_path"
+}
+
+print_local_build_summary() {
+  local local_builds_path="$1"
+
+  printf 'Local build report: %s\n' "$local_builds_path"
+  printf 'Local build successes: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $3 == "success" { count++ } END { print count + 0 }' "$local_builds_path"
+  )"
+  printf 'Local build failures: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $3 == "failed" { count++ } END { print count + 0 }' "$local_builds_path"
+  )"
+  printf 'Missing solutions: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $3 == "missing-solution" { count++ } END { print count + 0 }' "$local_builds_path"
+  )"
+
+  if awk -F '\t' 'NR > 1 && $3 == "failed" { found = 1 } END { exit found ? 0 : 1 }' "$local_builds_path"; then
+    echo
+    echo "Local build failures:"
+    awk -F '\t' 'NR > 1 && $3 == "failed" { printf "  %s\t%s\t%s\n", $1, $4, $6 }' "$local_builds_path"
+  fi
+}
+
 render_briefing_text() {
   local settings_path="$1"
   local workflows_path="$2"
@@ -921,14 +1006,20 @@ main() {
   local issues_path
   local signals_path
   local briefing_path
+  local local_builds_path
 
-  require_command gh
   require_command jq
   require_command python3
   parse_args "$@"
   load_automation_env
   load_config
-  require_github_auth
+
+  if [[ "$MODE" == "local-builds" ]]; then
+    require_command dotnet
+  else
+    require_command gh
+    require_github_auth
+  fi
 
   case "$MODE" in
     repos)
@@ -945,6 +1036,10 @@ main() {
       ;;
     signals)
       write_signals_report
+      ;;
+    local-builds)
+      local_builds_path="$(write_local_builds_report)"
+      print_local_build_summary "$local_builds_path"
       ;;
     summary)
       settings_path="$(write_settings_report)"
