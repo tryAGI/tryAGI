@@ -40,6 +40,9 @@ Default audit policy lives in [config/generated-sdk-audit.json](config/generated
 # List the generated SDK repos detected in this workspace
 ./scripts/manage-generated-sdk-subscriptions.sh repos
 
+# See current notification state for generated SDK repos
+./scripts/manage-generated-sdk-subscriptions.sh status
+
 # Preview muting notifications for every generated SDK repo
 ./scripts/manage-generated-sdk-subscriptions.sh ignore
 
@@ -47,7 +50,9 @@ Default audit policy lives in [config/generated-sdk-audit.json](config/generated
 ./scripts/manage-generated-sdk-subscriptions.sh ignore --apply
 ```
 
-The subscription helper uses `gh api`, so it requires a valid `gh auth login` session.
+`status` resolves through the canonical GitHub repo name, so renamed repos like `Instill`/`Instill-AI` and `Leonardo`/`LeonardoAi` still report correctly.
+
+The subscription helper uses `gh`, so it requires a valid `gh auth login` session.
 
 ## Notes
 

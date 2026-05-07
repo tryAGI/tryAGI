@@ -58,6 +58,18 @@ gh repo edit tryAGI/MyProvider \
 - `Allow auto-merge`
 - `Automatically delete head branches`
 
+**Notifications** — generated SDK repos should be muted to avoid workflow email spam:
+
+```bash
+# Verify the current notification state
+./scripts/manage-generated-sdk-subscriptions.sh status --repo '^MyProvider$'
+
+# Mute the new SDK repo if you created it manually
+./scripts/manage-generated-sdk-subscriptions.sh ignore --repo '^MyProvider$' --apply
+```
+
+If you create the repo through [`create-sdk.sh`](create-sdk.sh), the script now applies `ignored=true` automatically after repo creation.
+
 **Tags to NEVER use** (outdated/misleading):
 `net6`, `net7`, `net8`, `net9`, `netstandard`, `netframework`, `nswag`, `swagger`, `specification`, `generated`, `generator`, `langchain`, `langchain-dotnet`
 

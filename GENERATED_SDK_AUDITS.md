@@ -19,6 +19,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
   - warning lines
   - skipped tests
   - inconclusive-test markers
+- Optional local validation for generated SDKs:
+  - `dotnet build -c Release`
+  - `autosdk trim` for NativeAOT/trimming compatibility
 - A daily text briefing
 
 ## Commands
@@ -38,6 +41,12 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 
 # Warning / skipped-test signals from the latest completed Publish runs
 ./scripts/audit-generated-sdks.sh signals
+
+# Local Release builds across generated SDK repos
+./scripts/audit-generated-sdks.sh local-builds
+
+# Local autosdk trim checks across generated SDK projects
+./scripts/audit-generated-sdks.sh local-trims
 
 # All reports plus daily text briefing
 ./scripts/audit-generated-sdks.sh briefing
@@ -70,6 +79,12 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-log-signals.tsv`
   - One row per repo for the latest completed `Publish` run
   - Includes raw warning-line counts, skipped-test counts, and inconclusive-test hits
+- `generated-sdk-local-builds.tsv`
+  - One row per detected generated SDK repo
+  - Includes solution path, status, exit code, duration, and the local build log path
+- `generated-sdk-local-trims.tsv`
+  - One row per detected generated SDK project
+  - Includes project path, status, exit code, duration, and the local trim log path
 - `daily-briefing.txt`
   - Short human-readable daily summary
 By default both files are written to `/tmp/tryagi-sdk-audit/`. Override that path with `--out-dir`.
@@ -128,12 +143,17 @@ Add new keys there when the audit grows. The script treats the config as the def
   - The latest completed publish run skipped tests; often expected for credential-gated tests, but still worth tracking
 - Non-zero `inconclusive_hits`
   - The latest completed publish run contains inconclusive-test markers or skipped-by-design test paths
+- `local-builds` failure
+  - The SDK does not build locally in Release configuration; inspect the referenced log under `/tmp/tryagi-sdk-audit/local-build-logs/`
+- `local-trims` failure
+  - The SDK is not currently NativeAOT/trimming compatible under `autosdk trim`; inspect the referenced log under `/tmp/tryagi-sdk-audit/local-trim-logs/`
 
 ## Follow-up workflow
 
 1. Run `./scripts/audit-generated-sdks.sh summary`.
 2. Run `./scripts/audit-generated-sdks.sh briefing` when you want the full daily text pass.
-3. Open the failing repo locally.
-4. Fix the repo or org setting.
-5. Commit and push on `main`.
-6. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
+3. Run `./scripts/audit-generated-sdks.sh local-trims` when checking NativeAOT/trimming health.
+4. Open the failing repo locally.
+5. Fix the repo or org setting.
+6. Commit and push on `main`.
+7. Check any triggered GitHub Actions workflows and wait for them to finish successfully.

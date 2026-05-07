@@ -9,10 +9,11 @@ APPLY=false
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/manage-generated-sdk-subscriptions.sh [repos|ignore|watch|unwatch] [--repo REGEX] [--apply]
+Usage: ./scripts/manage-generated-sdk-subscriptions.sh [repos|status|ignore|watch|unwatch] [--repo REGEX] [--apply]
 
 Modes:
   repos     Print the generated SDK repos detected in the current workspace.
+  status    Print generated SDK repo notification state with canonical GitHub repo names.
   ignore    Mute notifications for generated SDK repos via the repo subscription API.
   watch     Re-enable repo notifications for generated SDK repos.
   unwatch   Remove repo subscriptions for generated SDK repos.
@@ -26,6 +27,7 @@ Environment:
 
 Examples:
   ./scripts/manage-generated-sdk-subscriptions.sh repos
+  ./scripts/manage-generated-sdk-subscriptions.sh status
   ./scripts/manage-generated-sdk-subscriptions.sh ignore
   ./scripts/manage-generated-sdk-subscriptions.sh ignore --repo '^(Braintrust|GroundX)$' --apply
   ./scripts/manage-generated-sdk-subscriptions.sh watch --repo '^(OpenAI|Anthropic)$' --apply
@@ -43,7 +45,7 @@ require_command() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      repos|ignore|watch|unwatch)
+      repos|status|ignore|watch|unwatch)
         MODE="$1"
         shift
         ;;
@@ -128,8 +130,53 @@ require_gh_auth() {
   fi
 }
 
+repo_status_fields() {
+  local repo="$1"
+  local api_target
+
+  api_target="$(repo_api_target "$repo")"
+
+  gh repo view "$api_target" \
+    --json nameWithOwner,createdAt,viewerSubscription \
+    --jq '[.nameWithOwner, (.createdAt // ""), (.viewerSubscription // "UNKNOWN")] | @tsv'
+}
+
 run_repo_mode() {
   list_generated_sdk_repos
+}
+
+run_status_mode() {
+  local repo
+  local repo_count=0
+  local status_fields
+  local github_repo
+  local created_at
+  local viewer_subscription
+
+  require_gh_auth
+
+  printf 'local_repo\tgithub_repo\tcreated_at\tviewer_subscription\n'
+
+  while IFS= read -r repo; do
+    [[ -n "$repo" ]] || continue
+    repo_count=$((repo_count + 1))
+
+    if status_fields="$(repo_status_fields "$repo" 2>/dev/null)"; then
+      github_repo="$(cut -f1 <<< "$status_fields")"
+      created_at="$(cut -f2 <<< "$status_fields")"
+      viewer_subscription="$(cut -f3 <<< "$status_fields")"
+    else
+      github_repo="$(repo_api_target "$repo")"
+      created_at=""
+      viewer_subscription="UNKNOWN"
+    fi
+
+    printf '%s\t%s\t%s\t%s\n' "$repo" "$github_repo" "$created_at" "$viewer_subscription"
+  done < <(list_generated_sdk_repos)
+
+  if [[ "$repo_count" -eq 0 ]]; then
+    echo "No generated SDK repos matched the current filter." >&2
+  fi
 }
 
 run_mutating_mode() {
@@ -193,6 +240,9 @@ main() {
   case "$MODE" in
     repos)
       run_repo_mode
+      ;;
+    status)
+      run_status_mode
       ;;
     ignore|watch|unwatch)
       run_mutating_mode

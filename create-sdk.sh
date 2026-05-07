@@ -17,7 +17,8 @@ set -euo pipefail
 #   3. Builds the solution
 #   4. Inits git, commits, creates GitHub repo, pushes
 #   5. Sets repo metadata (description, homepage, topics)
-#   6. Syncs docs from example tests
+#   6. Mutes repo notifications to avoid generated SDK email spam
+#   7. Syncs docs from example tests
 
 readonly SDK_NAME="${1:?Usage: $0 <SdkName> <ClientClassName> <spec-url> [description] [tags]}"
 readonly CLIENT_CLASS="${2:?Usage: $0 <SdkName> <ClientClassName> <spec-url> [description] [tags]}"
@@ -76,8 +77,8 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
 
-# Step 7: Create GitHub repo + push + set metadata
-echo "[7/7] Creating GitHub repo and pushing..."
+# Step 7: Create GitHub repo + push + set metadata + mute notifications
+echo "[7/7] Creating GitHub repo, pushing, and configuring GitHub settings..."
 gh repo create "${ORG}/${SDK_NAME}" --public --source=. --push
 
 # Convert semicolons to --add-topic flags
@@ -95,10 +96,13 @@ gh repo edit "${ORG}/${SDK_NAME}" \
     --delete-branch-on-merge \
     $TOPIC_FLAGS
 
+gh api -X PUT "repos/${ORG}/${SDK_NAME}/subscription" -F ignored=true >/dev/null
+
 echo ""
 echo "=== Done! ==="
 echo "Repository: https://github.com/${ORG}/${SDK_NAME}"
 echo "Generated files: ${GENERATED_COUNT}"
+echo "Notifications: muted (ignored)"
 echo ""
 echo "Next steps:"
 echo "  1. Customize generate.sh if auth scheme needs fixing (apiKey→bearer)"
