@@ -13,6 +13,7 @@ first-party HTTP API contract.
 | Provider | SDK | Source contract |
 |----------|-----|-----------------|
 | Fireworks AI | `Fireworks/` | Manual OpenAPI assembled from the official Fireworks audio transcription and translation API references. Fireworks does not publish a downloadable OpenAPI document for these audio endpoints. |
+| Local/offline STT | `LocalSpeechToText/` | Hand-written MEAI adapters over current NuGet packages for sherpa-onnx, Whisper.net/whisper.cpp, and Vosk. |
 
 ## Provider Coverage
 
@@ -37,6 +38,7 @@ first-party HTTP API contract.
 | DeepInfra Voxtral Mini | `DeepInfra/` | Existing hosted inference SDK. |
 | Gladia Solaria-1 | `Gladia/` | Existing direct SDK. |
 | Soniox V4 | `Soniox/` | Existing direct SDK. |
+| Local sherpa-onnx / Whisper.net / Vosk | `LocalSpeechToText/` | New local/offline MEAI SDK. Sherpa and Vosk support PCM/WAV streaming; Whisper.net uses local whisper.cpp segment decoding. Word/token/speaker details are exposed through `AdditionalProperties`. |
 | Smallest.ai Pulse STT | `SmallestAI/` | Existing direct SDK includes Pulse speech-to-text. |
 | Alibaba Cloud Qwen3.5 Omni Flash / Plus | `DashScope/` | Existing hand-maintained DashScope SDK is the workspace path for Alibaba Cloud Qwen multimodal APIs. Realtime-only WebSocket flows may need follow-up outside OpenAPI. |
 | NVIDIA Parakeet TDT 0.6B V2 | Hosted/open-weight coverage | Open-weight model family; no stable first-party REST/OpenAPI SDK target was identified. Use hosted inference SDKs such as `Replicate/`, `Fal/`, `DeepInfra/`, or `HuggingFace/` when deployed through those providers. |
@@ -66,6 +68,10 @@ For any blocked entry, the minimum SDK intake criteria are:
 - Fireworks translate audio API reference: <https://docs.fireworks.ai/api-reference/audio-translations>
 - Fireworks streaming ASR API reference: <https://docs.fireworks.ai/api-reference/audio-streaming-transcriptions>
 - Fireworks batch audio API reference: <https://docs.fireworks.ai/api-reference/create-batch-request>
+- sherpa-onnx C# API documentation: <https://k2-fsa.github.io/sherpa/onnx/csharp-api/index.html>
+- sherpa-onnx NuGet package: <https://www.nuget.org/packages/org.k2fsa.sherpa.onnx>
+- Whisper.net NuGet package: <https://www.nuget.org/packages/Whisper.net/>
+- Vosk NuGet package: <https://www.nuget.org/packages/Vosk/>
 - Mistral audio transcription API reference: <https://docs.mistral.ai/api/endpoint/audio/transcriptions>
 - Mistral audio capabilities docs: <https://docs.mistral.ai/capabilities/audio/>
 - Alibaba Cloud Qwen-Omni realtime docs: <https://www.alibabacloud.com/help/en/model-studio/realtime>

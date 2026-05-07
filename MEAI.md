@@ -48,6 +48,8 @@ This document provides a single source of truth for MEAI interface implementatio
 | [BraveSearch](https://github.com/tryAGI/BraveSearch) | - | - | - | Y | No |
 | [FishAudio](https://github.com/tryAGI/FishAudio) | - | - | Y | Y | No |
 | [SarvamAI](https://github.com/tryAGI/SarvamAI) | Y | - | Y | Y | Yes (`Meai`) |
+| [Soniox](https://github.com/tryAGI/Soniox) | - | - | Y | Y | No |
+| LocalSpeechToText | - | - | Y | - | No |
 | [KlingAI](https://github.com/tryAGI/KlingAI) | - | - | - | Y | No |
 | [CursorAgents](https://github.com/tryAGI/CursorAgents) | - | - | - | Y | No |
 | [Vapi](https://github.com/tryAGI/Vapi) | - | - | - | Y | No |
@@ -172,17 +174,19 @@ var response = await chatClient.GetResponseAsync(
 
 ### ISpeechToTextClient Features
 
-| Feature | Reka | ElevenLabs | AssemblyAI | Gladia | Cartesia | Deepgram | FishAudio | SarvamAI |
-|---------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| File transcription | Y | Y | Y | Y | Y | -† | Y | Y |
-| URL transcription | Y | - | Y | Y* | - | Y | - | - |
-| Streaming | -** | Y | - | -** | -** | -** | -** | -** |
-| Translation | Y | - | - | Y*** | - | - | - | - |
-| Timestamps | Y | Y | Y | Y | Y | Y | Y | - |
+| Feature | Reka | ElevenLabs | AssemblyAI | Gladia | Cartesia | Deepgram | FishAudio | SarvamAI | Soniox | LocalSpeechToText |
+|---------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| File transcription | Y | Y | Y | Y | Y | -† | Y | Y | Y | Y |
+| URL transcription | Y | - | Y | Y* | - | Y | - | - | - | - |
+| Streaming | -** | Y | - | -** | -** | -** | -** | -** | Y | Y**** |
+| Translation | Y | - | - | Y*** | - | - | - | - | Y | Y***** |
+| Timestamps | Y | Y | Y | Y | Y | Y | Y | - | Y | Y |
 
 *Gladia: audio URL via `RawRepresentationFactory` with `InitTranscriptionRequest`
 **Delegates to non-streaming (API limitation)
 ***Gladia: translation via `RawRepresentationFactory` with `Translation = true`
+****LocalSpeechToText: true streaming for sherpa-onnx and Vosk PCM/WAV streams; Whisper.net yields decoded segments from local file processing.
+*****LocalSpeechToText: Whisper.net can translate; sherpa-onnx translation depends on selected local model/config.
 †Deepgram: URL-based only; audio URL provided via `RawRepresentationFactory` with `ListenV1RequestUrl`
 
 ### AIFunction Tools
@@ -357,6 +361,8 @@ Reference implementations:
 | `Photoroom/` | `AIFunction` tools | 10.4.1 | Full (`AsRemoveBackgroundTool()` + `AsGenerateBackgroundTool()` + `AsRelightTool()` wrappers for use with any `IChatClient`) |
 | `Nanonets/` | `AIFunction` tools | 10.4.1 | Full (`AsOcrTool()` + `AsClassifyTool()` + `AsExtractTool()` wrappers for use with any `IChatClient`) |
 | `Speechmatics/` | `ISpeechToTextClient` + `AIFunction` tools | 10.4.1 | Full (batch STT, 55+ languages, poll for completion) / Full (`AsTranscribeUrlTool()` + `AsGetJobStatusTool()` + `AsListJobsTool()` wrappers for use with any `IChatClient`) |
+| `Soniox/` | `ISpeechToTextClient` + `AIFunction` tools | 10.5.0 | Full (async + realtime STT, language hints, diarization config, token metadata in `AdditionalProperties`) / Full (`AsListModelsTool()` + language listing helpers) |
+| `LocalSpeechToText/` | `ISpeechToTextClient` + `ITextToSpeechClient` | 10.5.0 | Spike/full local adapters for sherpa-onnx, Whisper.net, and Vosk STT plus sherpa-onnx offline TTS; streaming where the underlying local engine supports it, word/token/speaker/audio metadata via `AdditionalProperties` |
 | `Shotstack/` | `AIFunction` tools | 10.4.1 | Full (`AsGetRenderStatusTool()` + `AsListTemplatesTool()` + `AsProbeTool()` + `AsListAssetsTool()` wrappers for use with any `IChatClient`) |
 | `OpenRouter/` | `AIFunction` tools | 10.4.1 | Full (`AsListModelsTool()` + `AsGetModelTool()` + `AsGetGenerationTool()` + `AsGetCreditsTool()` wrappers for use with any `IChatClient`) |
 | `HumeAI/` | `AIFunction` tools | 10.4.1 | Full (`AsStartBatchJobTool()` + `AsGetJobStatusTool()` + `AsListJobsTool()` + `AsSynthesizeSpeechTool()` + `AsListVoicesTool()` + `AsListChatsTool()` wrappers for use with any `IChatClient`) |
@@ -415,7 +421,7 @@ These SDKs expand generation coverage but do not currently include hand-written 
 - `DashScope/` — native Alibaba Cloud Model Studio text, multimodal, image, and embedding APIs; OpenAI-compatible chat remains available via `CustomProviders.DashScope*()` in `tryAGI.OpenAI`.
 - `Moonshot/`, `TencentTokenHub/`, `StepFun/`, `ZAI/`, `Arcee/` — direct generated SDKs for provider-native or provider-documented APIs; chat access also remains available via `CustomProviders.*()` where OpenAI-compatible endpoints are sufficient.
 - `MiniMax/` — media generation SDK for video, music, TTS, voice clone, and files; chat/embeddings remain available via `CustomProviders.Minimax()` in `tryAGI.OpenAI`.
-- `PlayHT/`, `Rime/`, `Speechify/`, `VoiceAI/` — text-to-speech or voice APIs; .NET MEAI currently has `ISpeechToTextClient` but no standard text-to-speech abstraction.
+- `PlayHT/`, `Rime/`, `Speechify/`, `VoiceAI/` — text-to-speech or voice APIs; no hand-written `ITextToSpeechClient` adapter has been implemented yet.
 - `ResembleAI/`, `Revocalize/` — voice cloning, synthesis, watermarking, and conversion APIs; no single matching MEAI abstraction.
 - `Reverie/` — language AI APIs including STT, TTS, translation, and transliteration; possible future `ISpeechToTextClient` candidate, but no adapter has been implemented.
 
