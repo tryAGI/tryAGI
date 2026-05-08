@@ -12,7 +12,7 @@ HTTP API contract.
 | Provider | SDK | Source contract |
 |----------|-----|-----------------|
 | LMNT | `LMNT/` | Official OpenAPI document at `https://api.lmnt.com/spec`; generation strips the non-OpenAPI preface and bundled AsyncAPI section before generating the REST client. |
-| Smallest.ai | `SmallestAI/` | Official OpenAPI document at `https://docs.smallest.ai/openapi.yaml?api=148120e3-2d93-487e-9a21-5704cd2be0c4`. |
+| Smallest.ai | `SmallestAI/` | Official Fern OpenAPI selector at `https://docs.smallest.ai/openapi.json`; generation selects the Waves API by expected paths instead of pinning a transient `?api=` ID. |
 | Gradium | `Gradium/` | Official OpenAPI document at `https://docs.gradium.ai/api-reference/openapi.json`. |
 | Async Voice API | `AsyncAI/` | Manual OpenAPI assembled from the provider's public endpoint-level OpenAPI snippets in `https://docs.async.com/llms.txt`. |
 | Neuphonic | `Neuphonic/` | Manual OpenAPI assembled from the provider's public docs, official Python/JavaScript SDKs, and the live FastAPI OpenAPI surface at `https://api.neuphonic.com/openapi.json`. |
