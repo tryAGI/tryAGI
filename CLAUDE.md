@@ -81,6 +81,14 @@ AutoSDK ships a growing set of generator features that stay off by default to av
 | `--generate-webhook-verifier` | Replicate/Svix-style HMAC SHA-256 webhook verifier | Replicate, Svix-based webhook APIs |
 | `--generate-dynamic-multipart-helpers` | Dynamically named multipart part builders | Helicone, ElevenLabs convai-history, any "log this attachment under arbitrary field name" API |
 
+#### Vendor extensions that affect runtime auth
+
+These aren't CLI flags but spec-level opt-ins. Patch them into upstream specs via `OpenApiOverrides` (see [`SPEC_WORKAROUNDS.md`](SPEC_WORKAROUNDS.md)) when the SDK needs the behavior and the source spec doesn't declare it.
+
+| Extension | What it does | Enable on SDKs with… |
+|-----------|--------------|----------------------|
+| `x-call-scoped-auth: true` on an operation | Stamps `AutoSDKHttpRequestOptions.AuthorizationOverride` on the outgoing `HttpRequestMessage` so consumer `DelegatingHandler`s (rotation, account-key injection, etc.) can detect the call-scoped credential and skip the overwrite. Auto-detected for operations whose `security` block structurally differs from the document default; use this extension when the OpenAPI security model can't express the distinction — e.g. two endpoints share the same scheme reference but expect different runtime credentials (session-scoped bearer returned by an upstream poll vs. the account default). | Runway `POST /v1/realtime_sessions/{id}/consume` (session bearer from ready-poll), AssemblyAI streaming `Authorization` header endpoints, ElevenLabs Convai signed-URL session endpoints, any endpoint whose token comes from a sibling `Get…Token`/`…StartSession` call. |
+
 ### Common Build & Test Commands
 
 ```bash
