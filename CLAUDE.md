@@ -65,6 +65,22 @@ autosdk generate openapi.yaml \
 
 **When you still need runtime hooks:** Some providers use non-standard auth header names (e.g., `Token` instead of `Bearer`, `DeepL-Auth-Key`, `X-Subscription-Token`). Use `--security-scheme Http:Header:Bearer` for constructor generation, then add a `PrepareRequest` partial hook to rewrite the header at runtime. See [`SPEC_WORKAROUNDS.md`](SPEC_WORKAROUNDS.md) for the full list.
 
+### Opt-in AutoSDK Codegen Flags
+
+AutoSDK ships a growing set of generator features that stay off by default to avoid surprising existing SDKs. Add the matching CLI flag to the SDK's `generate.sh` (or set the `AutoSDK_*` MSBuild property) when the spec shape warrants it.
+
+| Flag | What it emits | Enable on SDKs with… |
+|------|---------------|----------------------|
+| `--auto-detect-status-polling` | `<Method>WaitAsync` for GET-by-id endpoints whose response has a status enum/const with terminal states; plus `<CreateMethod>WaitAsync` companions when a sibling 2XX response declares `Location` | Long-running create→poll APIs (Runway, Replicate, Apify, Heygen, Synthesia, Vidu, Luma, Hedra, Mubert, Reve, Tripo, KlingAI, Pika, Higgsfield, Recraft tasks) |
+| `--generate-pageable-helpers` | `AutoSDKPager` runtime helper plus `<Method>AutoPagingAsync` for offset/cursor-paged GET endpoints; offset detection wires `has_more`/`has_next` predicates when present | List endpoints with paging (HumeAI, OpenAI assistants/files, AssemblyAI transcripts, ElevenLabs voices, Anthropic message-batches, OpenRouter, LangSmith, Langfuse, Braintrust, Helicone, Opik, Phoenix) |
+| `--generate-prediction-workflow-helpers` | `PredictionWorkflowRunner<TRequest, TEnvelope, TResult>` runtime helper for create-wait-result composition | Replicate (`Prefer: wait`), Apify (`waitForFinish`), other create-then-poll-then-project flows |
+| `--generate-prompt-template-helpers` | `AutoSDK<PromptTemplate*>` DTOs + configurable manager class with `RenderStringAsync`/`RenderMessagesAsync` | LangSmith, Langfuse, PromptLayer, Braintrust prompt-version APIs |
+| `--generate-observability-lifecycle-helpers` | Batched ingest lifecycle helper with bounded queue/flush/shutdown | LangSmith, Langfuse, Braintrust, Helicone, Opik, Phoenix trace ingestion |
+| `--generate-evaluation-workflow-helpers` | `DatasetEvaluationRunner` for experiment loops | LangSmith, Braintrust, Phoenix eval pipelines |
+| `--generate-cloud-signing-helpers` | `CloudRequestSigner` (AWS SigV4, Azure key/token, Tencent TC3) | AwsBedrock, MicrosoftFoundry, TencentTokenHub, any AWS EventStream API |
+| `--generate-webhook-verifier` | Replicate/Svix-style HMAC SHA-256 webhook verifier | Replicate, Svix-based webhook APIs |
+| `--generate-dynamic-multipart-helpers` | Dynamically named multipart part builders | Helicone, ElevenLabs convai-history, any "log this attachment under arbitrary field name" API |
+
 ### Common Build & Test Commands
 
 ```bash
