@@ -66,7 +66,19 @@ load_env_file() {
   set +a
 }
 
+ensure_codex_home() {
+  if [[ -n "${CODEX_HOME:-}" ]]; then
+    return
+  fi
+
+  if [[ -n "${HOME:-}" ]]; then
+    export CODEX_HOME="${HOME%/}/.codex"
+  fi
+}
+
 load_automation_env() {
+  ensure_codex_home
+
   if [[ -n "$AUDIT_ENV_FILE" ]]; then
     load_env_file "$AUDIT_ENV_FILE"
     return
@@ -74,6 +86,18 @@ load_automation_env() {
 
   load_env_file "$ROOT_DIR/.env.audit"
   load_env_file "$ROOT_DIR/.env"
+}
+
+apply_env_overrides() {
+  ORG="${TRYAGI_ORG:-$ORG}"
+  CONFIG_PATH="${TRYAGI_AUDIT_CONFIG_PATH:-$CONFIG_PATH}"
+  OUT_DIR="${TRYAGI_AUDIT_OUT_DIR:-$OUT_DIR}"
+  ISSUE_LIMIT="${TRYAGI_ISSUE_LIMIT:-$ISSUE_LIMIT}"
+  AUTO_UPDATE_WORKFLOW_FILE="${TRYAGI_AUTO_UPDATE_WORKFLOW_FILE:-$AUTO_UPDATE_WORKFLOW_FILE}"
+  PUBLISH_WORKFLOW_FILE="${TRYAGI_PUBLISH_WORKFLOW_FILE:-$PUBLISH_WORKFLOW_FILE}"
+  NEW_REPO_DAYS="${TRYAGI_NEW_REPO_DAYS:-$NEW_REPO_DAYS}"
+  SIGNAL_RUN_LIMIT="${TRYAGI_SIGNAL_RUN_LIMIT:-$SIGNAL_RUN_LIMIT}"
+  SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-$SIGNAL_SKIP_IGNORE_REGEX}"
 }
 
 require_github_auth() {
@@ -362,6 +386,22 @@ load_config() {
     if [[ -n "$value" ]]; then
       SIGNAL_SKIP_IGNORE_REGEX="$value"
     fi
+  fi
+}
+
+resolve_report_path() {
+  local explicit_path="$1"
+  local filename="$2"
+  local candidate_path
+
+  if [[ -n "$explicit_path" ]]; then
+    printf '%s\n' "$explicit_path"
+    return
+  fi
+
+  candidate_path="$OUT_DIR/$filename"
+  if [[ -f "$candidate_path" ]]; then
+    printf '%s\n' "$candidate_path"
   fi
 }
 
@@ -963,11 +1003,266 @@ with open(output_path, "w", encoding="utf-8") as f:
 PY
 }
 
+write_summary_report() {
+  local mode_name="${1:-$MODE}"
+  local settings_path="${2:-}"
+  local workflows_path="${3:-}"
+  local issues_path="${4:-}"
+  local signals_path="${5:-}"
+  local local_builds_path="${6:-}"
+  local local_trims_path="${7:-}"
+  local output_path="$OUT_DIR/generated-sdk-summary.tsv"
+
+  mkdir -p "$OUT_DIR"
+  settings_path="$(resolve_report_path "$settings_path" "generated-sdk-settings.tsv")"
+  workflows_path="$(resolve_report_path "$workflows_path" "generated-sdk-workflows.tsv")"
+  issues_path="$(resolve_report_path "$issues_path" "generated-sdk-open-issues.tsv")"
+  signals_path="$(resolve_report_path "$signals_path" "generated-sdk-log-signals.tsv")"
+  local_builds_path="$(resolve_report_path "$local_builds_path" "generated-sdk-local-builds.tsv")"
+  local_trims_path="$(resolve_report_path "$local_trims_path" "generated-sdk-local-trims.tsv")"
+
+  python3 - <<'PY' \
+    "$mode_name" \
+    "$REPO_FILTER" \
+    "$SIGNAL_SKIP_IGNORE_REGEX" \
+    "$settings_path" \
+    "$workflows_path" \
+    "$issues_path" \
+    "$signals_path" \
+    "$local_builds_path" \
+    "$local_trims_path" \
+    "$output_path"
+import csv
+import os
+import re
+import sys
+from collections import Counter
+from datetime import datetime, timezone
+
+(
+    mode_name,
+    repo_filter,
+    signal_skip_ignore_regex,
+    settings_path,
+    workflows_path,
+    issues_path,
+    signals_path,
+    local_builds_path,
+    local_trims_path,
+    output_path,
+) = sys.argv[1:]
+
+
+def read_tsv(path):
+    if not path or not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f, delimiter="\t"))
+
+
+def unique_repo_count(*rows_sets):
+    repos = set()
+    for rows in rows_sets:
+        for row in rows:
+            repo = (row.get("repo") or "").strip()
+            if repo:
+                repos.add(repo)
+    return len(repos)
+
+
+def effective_signal_value(repo, raw_value):
+    try:
+        value = int(raw_value or 0)
+    except ValueError:
+        value = 0
+    if value == 0:
+        return 0
+    if signal_skip_ignore_regex and re.search(signal_skip_ignore_regex, repo or ""):
+        return 0
+    return value
+
+
+settings = read_tsv(settings_path)
+workflows = read_tsv(workflows_path)
+issues = read_tsv(issues_path)
+signals = read_tsv(signals_path)
+local_builds = read_tsv(local_builds_path)
+local_trims = read_tsv(local_trims_path)
+
+repo_count = len(settings) or unique_repo_count(workflows, signals, local_builds, local_trims)
+settings_non_compliant = sum(
+    1
+    for row in settings
+    if row.get("allow_auto_merge") != "true"
+    or row.get("delete_branch_on_merge") != "true"
+    or row.get("allow_update_branch") != "true"
+)
+autosdk_bootstrap_gaps = sum(
+    1
+    for row in settings
+    if row.get("autosdk_bootstrap_status") not in {"", "ok"}
+)
+
+auto_update_onboarding_gaps = sum(
+    1
+    for row in workflows
+    if row.get("kind") == "auto-update" and row.get("conclusion") == "new-repo-no-runs"
+)
+auto_update_no_runs = sum(
+    1
+    for row in workflows
+    if row.get("kind") == "auto-update" and row.get("conclusion") == "no-runs"
+)
+auto_update_failures = sum(
+    1
+    for row in workflows
+    if row.get("kind") == "auto-update"
+    and row.get("conclusion") not in {"success", "new-repo-no-runs", "no-runs", "missing-workflow", ""}
+)
+publish_onboarding_gaps = sum(
+    1
+    for row in workflows
+    if row.get("kind") == "publish" and row.get("conclusion") == "new-repo-no-runs"
+)
+publish_no_runs = sum(
+    1
+    for row in workflows
+    if row.get("kind") == "publish" and row.get("conclusion") == "no-runs"
+)
+publish_failures = sum(
+    1
+    for row in workflows
+    if row.get("kind") == "publish"
+    and row.get("conclusion") not in {"success", "new-repo-no-runs", "no-runs", "missing-workflow", ""}
+)
+
+issue_counts = Counter((row.get("repo") or "").strip() for row in issues if (row.get("repo") or "").strip())
+open_issue_count = sum(issue_counts.values())
+repos_with_open_issues = len(issue_counts)
+
+signal_rows = [row for row in signals if row.get("signal_status") == "ok"]
+signal_repos_with_findings = 0
+signal_warning_repo_count = 0
+signal_warning_line_total = 0
+signal_skipped_test_repo_count = 0
+signal_skipped_test_total = 0
+signal_inconclusive_repo_count = 0
+signal_inconclusive_hit_total = 0
+
+for row in signal_rows:
+    repo = row.get("repo") or ""
+    warning_lines = int(row.get("warning_lines") or 0)
+    skipped_tests = effective_signal_value(repo, row.get("skipped_tests"))
+    inconclusive_hits = effective_signal_value(repo, row.get("inconclusive_hits"))
+
+    if warning_lines > 0:
+        signal_warning_repo_count += 1
+        signal_warning_line_total += warning_lines
+    if skipped_tests > 0:
+        signal_skipped_test_repo_count += 1
+        signal_skipped_test_total += skipped_tests
+    if inconclusive_hits > 0:
+        signal_inconclusive_repo_count += 1
+        signal_inconclusive_hit_total += inconclusive_hits
+    if warning_lines > 0 or skipped_tests > 0 or inconclusive_hits > 0:
+        signal_repos_with_findings += 1
+
+local_build_successes = sum(1 for row in local_builds if row.get("status") == "success")
+local_build_failures = sum(1 for row in local_builds if row.get("status") == "failed")
+local_build_missing_solutions = sum(1 for row in local_builds if row.get("status") == "missing-solution")
+
+local_trim_successes = sum(1 for row in local_trims if row.get("status") == "success")
+local_trim_failures = sum(1 for row in local_trims if row.get("status") == "failed")
+local_trim_missing_projects = sum(1 for row in local_trims if row.get("status") == "missing-project")
+
+fields = [
+    "generated_at_utc",
+    "mode",
+    "repo_filter",
+    "repo_count",
+    "settings_non_compliant",
+    "autosdk_bootstrap_gaps",
+    "auto_update_onboarding_gaps",
+    "auto_update_no_runs",
+    "auto_update_failures",
+    "publish_onboarding_gaps",
+    "publish_no_runs",
+    "publish_failures",
+    "open_issue_count",
+    "repos_with_open_issues",
+    "signal_repos_with_findings",
+    "signal_warning_repo_count",
+    "signal_warning_line_total",
+    "signal_skipped_test_repo_count",
+    "signal_skipped_test_total",
+    "signal_inconclusive_repo_count",
+    "signal_inconclusive_hit_total",
+    "local_build_successes",
+    "local_build_failures",
+    "local_build_missing_solutions",
+    "local_trim_successes",
+    "local_trim_failures",
+    "local_trim_missing_projects",
+    "settings_report",
+    "workflows_report",
+    "issues_report",
+    "signals_report",
+    "local_builds_report",
+    "local_trims_report",
+]
+
+row = {
+    "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "mode": mode_name,
+    "repo_filter": repo_filter,
+    "repo_count": str(repo_count),
+    "settings_non_compliant": str(settings_non_compliant),
+    "autosdk_bootstrap_gaps": str(autosdk_bootstrap_gaps),
+    "auto_update_onboarding_gaps": str(auto_update_onboarding_gaps),
+    "auto_update_no_runs": str(auto_update_no_runs),
+    "auto_update_failures": str(auto_update_failures),
+    "publish_onboarding_gaps": str(publish_onboarding_gaps),
+    "publish_no_runs": str(publish_no_runs),
+    "publish_failures": str(publish_failures),
+    "open_issue_count": str(open_issue_count),
+    "repos_with_open_issues": str(repos_with_open_issues),
+    "signal_repos_with_findings": str(signal_repos_with_findings),
+    "signal_warning_repo_count": str(signal_warning_repo_count),
+    "signal_warning_line_total": str(signal_warning_line_total),
+    "signal_skipped_test_repo_count": str(signal_skipped_test_repo_count),
+    "signal_skipped_test_total": str(signal_skipped_test_total),
+    "signal_inconclusive_repo_count": str(signal_inconclusive_repo_count),
+    "signal_inconclusive_hit_total": str(signal_inconclusive_hit_total),
+    "local_build_successes": str(local_build_successes),
+    "local_build_failures": str(local_build_failures),
+    "local_build_missing_solutions": str(local_build_missing_solutions),
+    "local_trim_successes": str(local_trim_successes),
+    "local_trim_failures": str(local_trim_failures),
+    "local_trim_missing_projects": str(local_trim_missing_projects),
+    "settings_report": settings_path,
+    "workflows_report": workflows_path,
+    "issues_report": issues_path,
+    "signals_report": signals_path,
+    "local_builds_report": local_builds_path,
+    "local_trims_report": local_trims_path,
+}
+
+with open(output_path, "w", encoding="utf-8", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
+    writer.writeheader()
+    writer.writerow(row)
+PY
+
+  printf '%s\n' "$output_path"
+}
+
 print_summary() {
-  local settings_path="$1"
-  local workflows_path="$2"
-  local issues_path="${3:-}"
-  local signals_path="${4:-}"
+  local mode_name="$1"
+  local settings_path="$2"
+  local workflows_path="$3"
+  local issues_path="${4:-}"
+  local signals_path="${5:-}"
+  local summary_path
   local repo_count
   local settings_non_compliant
   local autosdk_bootstrap_gaps
@@ -978,7 +1273,8 @@ print_summary() {
   local publish_no_runs
   local publish_failures
 
-  repo_count="$(list_generated_sdk_repos | wc -l | tr -d ' ')"
+  summary_path="$(write_summary_report "$mode_name" "$settings_path" "$workflows_path" "$issues_path" "$signals_path")"
+  repo_count="$(awk -F '\t' 'NR == 2 { print $4 }' "$summary_path")"
   settings_non_compliant="$(
     awk -F '\t' 'NR > 1 && $1 != "" && ($2 != "true" || $3 != "true" || $4 != "true") { count++ } END { print count + 0 }' "$settings_path"
   )"
@@ -1013,6 +1309,7 @@ print_summary() {
   printf 'Latest publish onboarding gaps: %s\n' "$publish_onboarding_gaps"
   printf 'Latest publish mature no-runs: %s\n' "$publish_no_runs"
   printf 'Latest publish failures: %s\n' "$publish_failures"
+  printf 'Summary report: %s\n' "$summary_path"
   printf 'Settings report: %s\n' "$settings_path"
   printf 'Workflow report: %s\n' "$workflows_path"
 
@@ -1098,6 +1395,7 @@ main() {
   require_command python3
   parse_args "$@"
   load_automation_env
+  apply_env_overrides
   load_config
 
   if [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" ]]; then
@@ -1115,29 +1413,39 @@ main() {
       list_generated_sdk_repos
       ;;
     settings)
-      write_settings_report
+      settings_path="$(write_settings_report)"
+      write_summary_report "$MODE" "$settings_path" >/dev/null
+      printf '%s\n' "$settings_path"
       ;;
     workflows)
-      write_workflows_report
+      workflows_path="$(write_workflows_report)"
+      write_summary_report "$MODE" "" "$workflows_path" >/dev/null
+      printf '%s\n' "$workflows_path"
       ;;
     issues)
-      write_issues_report
+      issues_path="$(write_issues_report)"
+      write_summary_report "$MODE" "" "" "$issues_path" >/dev/null
+      printf '%s\n' "$issues_path"
       ;;
     signals)
-      write_signals_report
+      signals_path="$(write_signals_report)"
+      write_summary_report "$MODE" "" "" "" "$signals_path" >/dev/null
+      printf '%s\n' "$signals_path"
       ;;
     local-builds)
       local_builds_path="$(write_local_builds_report)"
+      write_summary_report "$MODE" "" "" "" "" "$local_builds_path" >/dev/null
       print_local_build_summary "$local_builds_path"
       ;;
     local-trims)
       local_trims_path="$(write_local_trims_report)"
+      write_summary_report "$MODE" "" "" "" "" "" "$local_trims_path" >/dev/null
       print_local_trim_summary "$local_trims_path"
       ;;
     summary)
       settings_path="$(write_settings_report)"
       workflows_path="$(write_workflows_report)"
-      print_summary "$settings_path" "$workflows_path"
+      print_summary "$MODE" "$settings_path" "$workflows_path"
       ;;
     briefing)
       settings_path="$(write_settings_report)"
@@ -1146,7 +1454,7 @@ main() {
       signals_path="$(write_signals_report)"
       briefing_path="$OUT_DIR/daily-briefing.txt"
       render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$briefing_path"
-      print_summary "$settings_path" "$workflows_path" "$issues_path" "$signals_path"
+      print_summary "$MODE" "$settings_path" "$workflows_path" "$issues_path" "$signals_path"
       printf 'Briefing text: %s\n' "$briefing_path"
       ;;
   esac

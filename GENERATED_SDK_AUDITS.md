@@ -22,6 +22,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 - Optional local validation for generated SDKs:
   - `dotnet build -c Release`
   - `autosdk trim` for NativeAOT/trimming compatibility
+- A machine-readable summary rollup in `generated-sdk-summary.tsv`
 - A daily text briefing
 
 ## Commands
@@ -85,13 +86,21 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-local-trims.tsv`
   - One row per detected generated SDK project
   - Includes project path, status, exit code, duration, and the local trim log path
+- `generated-sdk-summary.tsv`
+  - One summary row that rolls up the latest counts currently available in the output directory
+  - Refreshes on every mode, so separate `settings`, `workflows`, `issues`, `signals`, `local-builds`, and `local-trims` runs converge into one machine-readable status snapshot
+  - Includes aggregate counts plus the source report paths that produced them
 - `daily-briefing.txt`
   - Short human-readable daily summary
 By default both files are written to `/tmp/tryagi-sdk-audit/`. Override that path with `--out-dir`.
 
 Environment knobs:
+- `CODEX_HOME`
+  - If unset, the script exports `$HOME/.codex` before loading env files so automation shells can resolve Codex-relative paths consistently
 - `TRYAGI_AUDIT_CONFIG_PATH`
   - Override the config file path. Default: `config/generated-sdk-audit.json`
+- `TRYAGI_AUDIT_ENV_FILE`
+  - Source an env file before the audit runs; values from that file now apply to the script's `TRYAGI_*` settings as well as downstream tools such as `gh`
 - `TRYAGI_AUTO_UPDATE_WORKFLOW_FILE`
   - Override the auto-update workflow filename without editing the tracked config
 - `TRYAGI_PUBLISH_WORKFLOW_FILE`
