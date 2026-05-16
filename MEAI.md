@@ -306,7 +306,7 @@ Reference implementations:
 | `Anthropic/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools, images, PDFs, thinking) |
 | `Ollama/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, thinking) / Full (embeddings) |
 | `HuggingFace/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Partial (chat) / Full (embeddings) |
-| `Google.Gemini/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, thinking, thought signatures) / Full (embeddings) |
+| `Google.Gemini/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, thinking, thought signatures) / Full (embeddings); also ships `SpeakAsync` / `TranscribeAsync` extensions — default TTS model is `gemini-3.1-flash-tts-preview` with inline audio-tag controllability via `GeminiAudioTags` constants and `GeminiVoices` voice list |
 | `Mistral/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools, images) |
 | `Cohere/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Partial (text, tools; no true streaming) / Full (embeddings) |
 | `Reka/` | `IChatClient` + `ISpeechToTextClient` | 10.4.1 | Full (text, streaming, tools, images/audio/video/PDF URLs, speech-to-text) |
