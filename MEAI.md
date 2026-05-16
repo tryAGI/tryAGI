@@ -12,7 +12,7 @@ This document provides a single source of truth for MEAI interface implementatio
 | [Ollama](https://github.com/tryAGI/Ollama) | Y | Y | - | - | No |
 | [OpenAI](https://github.com/tryAGI/OpenAI) | Y | Y | - | - | Yes (`Meai`) |
 | [Gonka](https://github.com/tryAGI/Gonka) | Y | - | - | - | No |
-| [Google.Gemini](https://github.com/tryAGI/Google_Generative_AI) | Y | Y | - | - | No |
+| [Google.Gemini](https://github.com/tryAGI/Google_Generative_AI) | Y | Y | Y | - | No |
 | [Mistral](https://github.com/tryAGI/Mistral) | Y | - | - | - | Yes (`Meai`) |
 | [Cohere](https://github.com/tryAGI/Cohere) | Y | Y | - | - | Yes (`Meai`) |
 | [Coze](https://github.com/tryAGI/Coze) | Y | - | - | - | No |
@@ -306,7 +306,7 @@ Reference implementations:
 | `Anthropic/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools, images, PDFs, thinking) |
 | `Ollama/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, thinking) / Full (embeddings) |
 | `HuggingFace/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Partial (chat) / Full (embeddings) |
-| `Google.Gemini/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, thinking, thought signatures) / Full (embeddings); also ships `SpeakAsync` / `TranscribeAsync` extensions — default TTS model is `gemini-3.1-flash-tts-preview` with inline audio-tag controllability via `GeminiAudioTags` constants and `GeminiVoices` voice list |
+| `Google.Gemini/` | `IChatClient` + `IEmbeddingGenerator` + `ISpeechToTextClient` | 10.5.2 | Full (text, streaming, tools, images, thinking, thought signatures) / Full (embeddings) / Full (transcription via `gemini-flash-latest`); also ships `SpeakAsync` extension — default TTS model is `gemini-3.1-flash-tts-preview` with inline audio-tag controllability via `GeminiAudioTags` constants, `GeminiVoices` voice list, and `ListTtsModelsAsync` for live model discovery |
 | `Mistral/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools, images) |
 | `Cohere/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Partial (text, tools; no true streaming) / Full (embeddings) |
 | `Reka/` | `IChatClient` + `ISpeechToTextClient` | 10.4.1 | Full (text, streaming, tools, images/audio/video/PDF URLs, speech-to-text) |
