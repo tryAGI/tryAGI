@@ -8,6 +8,7 @@ MODE="${1:-summary}"
 HAVENDV_REF='uses: HavenDV/workflows/.github/workflows/dotnet_build-test-publish.yml@main'
 TRYAGI_DOTNET_REF='uses: tryAGI/workflows/.github/workflows/dotnet-sdk-build-test-publish.yml@main'
 TRYAGI_SDK_PUBLISH_REF='uses: tryAGI/workflows/.github/workflows/generated-sdk-publish.yml@main'
+TRYAGI_SDK_PR_REF='uses: tryAGI/workflows/.github/workflows/generated-sdk-pull-request.yml@main'
 
 collect_matches() {
   local pattern="$1"
@@ -46,6 +47,7 @@ TARGETS=(
 havendv_files="$(collect_matches "$HAVENDV_REF" "${TARGETS[@]}")"
 tryagi_dotnet_files="$(collect_matches "$TRYAGI_DOTNET_REF" "${TARGETS[@]}")"
 tryagi_sdk_publish_files="$(collect_matches "$TRYAGI_SDK_PUBLISH_REF" "${TARGETS[@]}")"
+tryagi_sdk_pr_files="$(collect_matches "$TRYAGI_SDK_PR_REF" "${TARGETS[@]}")"
 
 case "$MODE" in
   summary)
@@ -61,6 +63,10 @@ case "$MODE" in
     if [ -n "$tryagi_sdk_publish_files" ]; then
       printf '%s\n' "$tryagi_sdk_publish_files" | collect_repos | sed 's/^/  - /'
     fi
+    printf '\ntryAGI generated SDK pull request refs: %s files\n' "$(count_lines "$tryagi_sdk_pr_files")"
+    if [ -n "$tryagi_sdk_pr_files" ]; then
+      printf '%s\n' "$tryagi_sdk_pr_files" | collect_repos | sed 's/^/  - /'
+    fi
     ;;
   havendv-files)
     if [ -n "$havendv_files" ]; then
@@ -68,7 +74,7 @@ case "$MODE" in
     fi
     ;;
   tryagi-files)
-    printf '%s\n%s\n' "$tryagi_dotnet_files" "$tryagi_sdk_publish_files" | sed '/^$/d'
+    printf '%s\n%s\n%s\n' "$tryagi_dotnet_files" "$tryagi_sdk_publish_files" "$tryagi_sdk_pr_files" | sed '/^$/d'
     ;;
   *)
     echo "Usage: $(basename "$0") [summary|havendv-files|tryagi-files]" >&2
