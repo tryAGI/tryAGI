@@ -10,6 +10,7 @@ It does **not** manage the individual SDK repositories inside this folder. Each 
 - Workspace scripts such as [audit-generated-sdks.sh](scripts/audit-generated-sdks.sh)
 - Audit policy defaults in [config/generated-sdk-audit.json](config/generated-sdk-audit.json)
 - Shared guides such as [NEW_SDK_GUIDE.md](NEW_SDK_GUIDE.md) and [GENERATED_SDK_AUDITS.md](GENERATED_SDK_AUDITS.md)
+- Official SDK comparison inventory in [docs/docs/sdks/official-sdk-comparison.md](docs/docs/sdks/official-sdk-comparison.md) for tracking first-party SDKs and AutoSDK quality gaps
 
 ## Daily Checks
 
