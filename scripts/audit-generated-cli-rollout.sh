@@ -23,9 +23,9 @@ Audits generated SDK repositories for CLI rollout readiness and writes:
   /tmp/tryagi-cli-audit/cli-rollout-commands.sh
 
 Columns track detected generated SDK projects, OpenAPI specs, manual PackAsTool CLIs,
-generated api-only sources, generated CLI projects, trim-publish candidates, operation
-counts, auth/base-url generation hints, optional build-probe status, and ready-to-run
-CLI generation commands for SDKs that do not have a CLI yet.
+generated api-only sources, generated CLI projects, solution-file gaps, trim-publish
+candidates, operation counts, auth/base-url generation hints, optional build-probe
+status, and ready-to-run CLI generation commands for SDKs that do not have a CLI yet.
 
 Set TRYAGI_AUTOSDK_CLI='dotnet run --project /path/to/AutoSDK/src/libs/AutoSDK.CLI --'
 to run throwaway probes with a local AutoSDK checkout.
@@ -221,6 +221,35 @@ detect_generated_cli_projects() {
     join_lines
 }
 
+detect_solution_cli_gaps() {
+  local repo="$1"
+  local generated_cli_projects="$2"
+  [[ -n "$generated_cli_projects" ]] || return 0
+
+  python3 - "$repo" "$generated_cli_projects" <<'PY'
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1])
+projects = [value for value in sys.argv[2].split(";") if value]
+solutions = list(repo.glob("*.sln")) + list(repo.glob("*.slnx"))
+missing = []
+
+for project in projects:
+    normalized = project.replace("\\", "/")
+    is_in_solution = False
+    for solution in solutions:
+        text = solution.read_text(encoding="utf-8", errors="ignore").replace("\\", "/")
+        if normalized in text:
+            is_in_solution = True
+            break
+    if not is_in_solution:
+        missing.append(project)
+
+print(";".join(missing))
+PY
+}
+
 append_rollout_command() {
   local repo="$1"
   local repo_name="$2"
@@ -238,7 +267,7 @@ append_rollout_command() {
   client="${client:-${repo_name}Client}"
   target="${target:-net10.0}"
   package_id="${repo_name}.CLI"
-  tool_name="tryagi-$(to_kebab "$repo_name")"
+  tool_name="$(to_kebab "$repo_name")"
   env_prefix="$(to_env_prefix "$repo_name")"
   output_rel="src/cli/${repo_name}.CLI"
 
@@ -328,7 +357,7 @@ run_build_probe() {
   client="${client:-${repo_name}Client}"
   target="${target:-net10.0}"
   package_id="${repo_name}.CLI.Probe"
-  tool_name="tryagi-$(to_kebab "$repo_name")-probe"
+  tool_name="$(to_kebab "$repo_name")-probe"
   env_prefix="$(to_env_prefix "$repo_name")"
   local spec_abs sdk_project_abs
   spec_abs="$(realpath_portable "$repo/$spec_rel")"
@@ -390,7 +419,7 @@ run_build_probe() {
 } > "$COMMANDS"
 
 {
-  printf 'repo\tsdk_project\tspec\toperation_count\tsecurity_schemes\tbase_url_override\tmanual_cli_projects\tgenerated_api_sources\tgenerated_cli_projects\ttrim_candidates\tbuild_probe\tnotes\n'
+  printf 'repo\tsdk_project\tspec\toperation_count\tsecurity_schemes\tbase_url_override\tmanual_cli_projects\tgenerated_api_sources\tgenerated_cli_projects\tsolution_cli_gaps\ttrim_candidates\tbuild_probe\tnotes\n'
 
   probe_count=0
   find "$WORKSPACE" -mindepth 1 -maxdepth 1 -type d -name '.git' -prune -o -type d -print |
@@ -410,13 +439,16 @@ run_build_probe() {
       manual_cli_projects="$(detect_manual_cli_projects "$repo")"
       generated_api_sources="$(detect_generated_api_sources "$repo")"
       generated_cli_projects="$(detect_generated_cli_projects "$repo")"
+      solution_cli_gaps="$(detect_solution_cli_gaps "$repo" "$generated_cli_projects")"
       generate_script="$(detect_generate_script "$spec")"
       operation_count="$(count_openapi_operations "$spec")"
       security_schemes="$(detect_generate_arg_values "$generate_script" "--security-scheme")"
       base_url_override="$(detect_generate_arg_values "$generate_script" "--base-url")"
       trim_candidates="${generated_cli_projects:-$manual_cli_projects}"
       notes=ready
-      if [[ -n "$generated_cli_projects" ]]; then
+      if [[ -n "$solution_cli_gaps" ]]; then
+        notes=generated-cli-missing-solution
+      elif [[ -n "$generated_cli_projects" ]]; then
         notes=ready
       elif [[ -z "$manual_cli_projects" ]]; then
         notes=needs-cli-project
@@ -436,7 +468,7 @@ run_build_probe() {
         append_rollout_command "$repo" "$repo_name" "$(relpath "$sdk_project" "$repo")" "$(relpath "$spec" "$repo")" "$generate_script"
       fi
 
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$repo_name" \
         "$(relpath "$sdk_project" "$repo")" \
         "$(relpath "$spec" "$repo")" \
@@ -446,6 +478,7 @@ run_build_probe() {
         "$manual_cli_projects" \
         "$generated_api_sources" \
         "$generated_cli_projects" \
+        "$solution_cli_gaps" \
         "$trim_candidates" \
         "$build_probe" \
         "$notes"
@@ -470,14 +503,15 @@ with open(md_path, "w", encoding="utf-8") as handle:
     handle.write("# Generated CLI Rollout Audit\n\n")
     handle.write(f"Source: `{tsv_path}`\n\n")
     handle.write(f"Commands: `{commands_path}`\n\n")
-    handle.write("| Repo | SDK project | Spec | Ops | Auth override | Base URL override | Manual CLI | Generated API sources | Generated CLI project | Build probe | Notes |\n")
-    handle.write("| --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |\n")
+    handle.write("| Repo | SDK project | Spec | Ops | Auth override | Base URL override | Manual CLI | Generated API sources | Generated CLI project | Solution CLI gaps | Build probe | Notes |\n")
+    handle.write("| --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n")
     for row in rows:
         handle.write(
             f"| {row['repo']} | `{row['sdk_project']}` | `{row['spec']}` | "
             f"{row['operation_count']} | {value(row, 'security_schemes')} | "
             f"{value(row, 'base_url_override')} | {value(row, 'manual_cli_projects')} | "
             f"{value(row, 'generated_api_sources')} | {value(row, 'generated_cli_projects')} | "
+            f"{value(row, 'solution_cli_gaps')} | "
             f"{row['build_probe']} | {row['notes']} |\n"
         )
 PY
