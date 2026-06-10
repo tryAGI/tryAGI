@@ -20,10 +20,12 @@ Usage: scripts/audit-generated-cli-rollout.sh [--repo REGEX] [--probe-builds] [-
 Audits generated SDK repositories for CLI rollout readiness and writes:
   /tmp/tryagi-cli-audit/cli-rollout.tsv
   /tmp/tryagi-cli-audit/cli-rollout.md
+  /tmp/tryagi-cli-audit/cli-rollout-commands.sh
 
 Columns track detected generated SDK projects, OpenAPI specs, manual PackAsTool CLIs,
 generated api-only sources, generated CLI projects, trim-publish candidates, operation
-counts, auth/base-url generation hints, and optional build-probe status.
+counts, auth/base-url generation hints, optional build-probe status, and ready-to-run
+CLI generation commands for SDKs that do not have a CLI yet.
 
 Set TRYAGI_AUTOSDK_CLI='dotnet run --project /path/to/AutoSDK/src/libs/AutoSDK.CLI --'
 to run throwaway probes with a local AutoSDK checkout.
@@ -59,6 +61,7 @@ done
 mkdir -p "$OUT_DIR"
 TSV="$OUT_DIR/cli-rollout.tsv"
 MD="$OUT_DIR/cli-rollout.md"
+COMMANDS="$OUT_DIR/cli-rollout-commands.sh"
 
 find_first() {
   local root="$1"
@@ -91,6 +94,10 @@ to_env_prefix() {
   python3 -c 'import re, sys; print(re.sub(r"[^A-Za-z0-9]+", "_", sys.argv[1]).upper().strip("_"))' "$1"
 }
 
+shell_quote() {
+  python3 -c 'import shlex, sys; print(" ".join(shlex.quote(arg) for arg in sys.argv[1:]))' "$@"
+}
+
 detect_generate_script() {
   local spec="$1"
   local script
@@ -110,7 +117,14 @@ script, arg = sys.argv[1], sys.argv[2]
 text = open(script, encoding="utf-8").read()
 text = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 pattern = re.compile(rf"{re.escape(arg)}(?:=|\s+)([^\s\\]+)")
-print(";".join(match.group(1).strip("'\"") for match in pattern.finditer(text)))
+values = []
+seen = set()
+for match in pattern.finditer(text):
+    value = match.group(1).strip("'\"")
+    if value not in seen:
+        values.append(value)
+        seen.add(value)
+print(";".join(values))
 PY
 }
 
@@ -166,7 +180,10 @@ detect_manual_cli_projects() {
     -path '*/obj' -prune -o \
     -name '*.csproj' -print 2>/dev/null |
     while IFS= read -r project; do
-      if grep -q '<PackAsTool>true</PackAsTool>' "$project"; then
+      local project_dir
+      project_dir="$(dirname "$project")"
+      if grep -q '<PackAsTool>true</PackAsTool>' "$project" &&
+         ! { [[ -f "$project_dir/Commands/ApiCommand.g.cs" ]] && [[ -f "$project_dir/CliRuntime.cs" ]]; }; then
         relpath "$project" "$repo"
       fi
     done |
@@ -192,13 +209,79 @@ detect_generated_cli_projects() {
     -path '*/obj' -prune -o \
     -name '*.csproj' -print 2>/dev/null |
     while IFS= read -r project; do
+      local project_dir
+      project_dir="$(dirname "$project")"
       if grep -q '<PackAsTool>true</PackAsTool>' "$project" &&
          { grep -qi '<PackageId>.*\.CLI\.Generated' "$project" ||
-           grep -qi '<ToolCommandName>tryagi-.*-generated</ToolCommandName>' "$project"; }; then
+           grep -qi '<ToolCommandName>tryagi-.*-generated</ToolCommandName>' "$project" ||
+           { [[ -f "$project_dir/Commands/ApiCommand.g.cs" ]] && [[ -f "$project_dir/CliRuntime.cs" ]]; }; }; then
         relpath "$project" "$repo"
       fi
     done |
     join_lines
+}
+
+append_rollout_command() {
+  local repo="$1"
+  local repo_name="$2"
+  local sdk_project_rel="$3"
+  local spec_rel="$4"
+  local generate_script="$5"
+
+  local namespace client target package_id tool_name env_prefix output_rel base_url security_schemes
+  namespace="$(detect_first_generate_arg_value "$generate_script" "--namespace")"
+  client="$(detect_first_generate_arg_value "$generate_script" "--clientClassName")"
+  target="$(detect_first_generate_arg_value "$generate_script" "--targetFramework")"
+  base_url="$(first_item "$(detect_generate_arg_values "$generate_script" "--base-url")")"
+  security_schemes="$(detect_generate_arg_values "$generate_script" "--security-scheme")"
+  namespace="${namespace:-$repo_name}"
+  client="${client:-${repo_name}Client}"
+  target="${target:-net10.0}"
+  package_id="${repo_name}.CLI"
+  tool_name="tryagi-$(to_kebab "$repo_name")"
+  env_prefix="$(to_env_prefix "$repo_name")"
+  output_rel="src/cli/${repo_name}.CLI"
+
+  local cmd=(
+    "${AUTOSDK_CMD[@]}"
+    cli-project "$spec_rel"
+    --output "$output_rel"
+    --sdk-project "$sdk_project_rel"
+    --targetFramework "$target"
+    --namespace "$namespace"
+    --clientClassName "$client"
+    --package-id "$package_id"
+    --tool-command-name "$tool_name"
+    --user-secrets-id "$package_id"
+    --api-key-env-var "${env_prefix}_API_KEY"
+    --base-url-env-var "${env_prefix}_BASE_URL"
+    --cli-credential-file
+    --exclude-deprecated-operations
+  )
+
+  if [[ -n "$base_url" ]]; then
+    cmd+=(--base-url "$base_url")
+  fi
+
+  if [[ -n "$security_schemes" ]]; then
+    local IFS=';'
+    for scheme in $security_schemes; do
+      [[ -n "$scheme" ]] && cmd+=(--security-scheme "$scheme")
+    done
+  fi
+
+  if detect_generate_flag "$generate_script" "--ignore-openapi-errors"; then
+    cmd+=(--ignore-openapi-errors)
+  fi
+
+  {
+    printf '\n# %s\n' "$repo_name"
+    printf '(\n'
+    printf '  cd %s\n' "$(shell_quote "$repo")"
+    printf '  rm -rf %s\n' "$(shell_quote "$output_rel")"
+    printf '  %s\n' "$(shell_quote "${cmd[@]}")"
+    printf ')\n'
+  } >> "$COMMANDS"
 }
 
 run_build_probe() {
@@ -300,6 +383,13 @@ run_build_probe() {
 }
 
 {
+  printf '#!/usr/bin/env bash\n'
+  printf 'set -euo pipefail\n\n'
+  printf '# Generated by scripts/audit-generated-cli-rollout.sh\n'
+  printf '# Set TRYAGI_AUTOSDK_CLI before running the audit if these commands should use a local AutoSDK checkout.\n'
+} > "$COMMANDS"
+
+{
   printf 'repo\tsdk_project\tspec\toperation_count\tsecurity_schemes\tbase_url_override\tmanual_cli_projects\tgenerated_api_sources\tgenerated_cli_projects\ttrim_candidates\tbuild_probe\tnotes\n'
 
   probe_count=0
@@ -326,9 +416,11 @@ run_build_probe() {
       base_url_override="$(detect_generate_arg_values "$generate_script" "--base-url")"
       trim_candidates="${generated_cli_projects:-$manual_cli_projects}"
       notes=ready
-      if [[ -z "$manual_cli_projects" && -z "$generated_cli_projects" ]]; then
+      if [[ -n "$generated_cli_projects" ]]; then
+        notes=ready
+      elif [[ -z "$manual_cli_projects" ]]; then
         notes=needs-cli-project
-      elif [[ -n "$manual_cli_projects" && -z "$generated_api_sources" ]]; then
+      elif [[ -z "$generated_api_sources" ]]; then
         notes=manual-cli-needs-generated-api
       fi
       build_probe=not-run
@@ -339,6 +431,9 @@ run_build_probe() {
         else
           build_probe=skipped-limit
         fi
+      fi
+      if [[ "$notes" == "needs-cli-project" ]]; then
+        append_rollout_command "$repo" "$repo_name" "$(relpath "$sdk_project" "$repo")" "$(relpath "$spec" "$repo")" "$generate_script"
       fi
 
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -357,11 +452,13 @@ run_build_probe() {
     done
 } > "$TSV"
 
-python3 - "$TSV" "$MD" <<'PY'
+chmod +x "$COMMANDS"
+
+python3 - "$TSV" "$MD" "$COMMANDS" <<'PY'
 import csv
 import sys
 
-tsv_path, md_path = sys.argv[1], sys.argv[2]
+tsv_path, md_path, commands_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
 def value(row, key, default="none"):
     return row.get(key) or default
@@ -372,6 +469,7 @@ with open(tsv_path, newline="", encoding="utf-8") as handle:
 with open(md_path, "w", encoding="utf-8") as handle:
     handle.write("# Generated CLI Rollout Audit\n\n")
     handle.write(f"Source: `{tsv_path}`\n\n")
+    handle.write(f"Commands: `{commands_path}`\n\n")
     handle.write("| Repo | SDK project | Spec | Ops | Auth override | Base URL override | Manual CLI | Generated API sources | Generated CLI project | Build probe | Notes |\n")
     handle.write("| --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |\n")
     for row in rows:
@@ -386,3 +484,4 @@ PY
 
 echo "Wrote $TSV"
 echo "Wrote $MD"
+echo "Wrote $COMMANDS"
