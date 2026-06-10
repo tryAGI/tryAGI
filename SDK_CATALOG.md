@@ -38,7 +38,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `APITemplate/`, `Gamma/`, `PDF4Dev/`, `Presenton/`
 
 **Audio / Speech:**
-`AssemblyAI/`, `AsyncAI/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Gradium/`, `Inworld/`, `LalalAI/`, `LMNT/`, `LocalSpeechToText/`, `MiniMax/`, `Murf/`, `PlayHT/`, `ResembleAI/`, `RetellAI/`, `RevAI/`, `Revocalize/`, `Reverie/`, `Rime/`, `SmallestAI/`, `Speechify/`, `Speechmatics/`, `StepFun/`, `Ultravox/`, `Vapi/`, `VoiceAI/`, `ZAI/`
+`AssemblyAI/`, `AsyncAI/`, `Audra/`, `Cartesia/`, `Deepgram/`, `ElevenLabs/`, `FishAudio/`, `Gladia/`, `Gradium/`, `Inworld/`, `LalalAI/`, `LMNT/`, `LocalSpeechToText/`, `MiniMax/`, `Murf/`, `PlayHT/`, `ResembleAI/`, `RetellAI/`, `RevAI/`, `Revocalize/`, `Reverie/`, `Rime/`, `SmallestAI/`, `Speechify/`, `Speechmatics/`, `StepFun/`, `Ultravox/`, `Vapi/`, `VoiceAI/`, `ZAI/`
 
 `LocalSpeechToText/` is hand-written over local/native engines rather than AutoSDK-generated from an OpenAPI provider contract; it now covers local STT plus sherpa-onnx TTS.
 

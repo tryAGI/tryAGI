@@ -16,6 +16,7 @@ HTTP API contract.
 | Gradium | `Gradium/` | Official OpenAPI document at `https://docs.gradium.ai/api-reference/openapi.json`. |
 | Async Voice API | `AsyncAI/` | Manual OpenAPI assembled from the provider's public endpoint-level OpenAPI snippets in `https://docs.async.com/llms.txt`. |
 | Neuphonic | `Neuphonic/` | Manual OpenAPI assembled from the provider's public docs, official Python/JavaScript SDKs, and the live FastAPI OpenAPI surface at `https://api.neuphonic.com/openapi.json`. |
+| Audra | `Audra/` | Official OpenAPI document at `https://audratalks.com/openapi.yaml`; direct SDK covers the native v2 TTS, batch job, usage, billing, key, and metadata surface. |
 
 ## Provider Coverage
 
@@ -32,6 +33,7 @@ HTTP API contract.
 | Microsoft MAI-Voice-1 | Blocked | No standalone public endpoint-level API contract found for the listed model. |
 | Microsoft VibeVoice | Hosted/open-weight coverage | Open-weight model family; no first-party hosted API SDK target identified. |
 | OpenAI TTS | `OpenAI/` | Existing direct SDK. |
+| Audra audra-core | `Audra/` / `OpenAI/` compatibility path | New direct SDK for Audra's native v2 API. Simple drop-in TTS migration can also use Audra's OpenAI-compatible `/v1/audio/speech` surface through `CustomProviders.Audra(...)` in the OpenAI SDK. |
 | Gradium TTS | `Gradium/` | New direct SDK. |
 | Cartesia Sonic | `Cartesia/` | Existing direct SDK. |
 | NVIDIA Magpie | Hosted/open-weight coverage | Open-weight model family; use `HuggingFace/`, `Replicate/`, `Fal/`, or other hosting SDKs when deployed. |
@@ -89,4 +91,6 @@ For any blocked entry, the minimum SDK intake criteria are:
 - Neuphonic live FastAPI OpenAPI: <https://api.neuphonic.com/openapi.json>
 - Neuphonic Python SDK: <https://github.com/neuphonic/pyneuphonic>
 - Neuphonic JavaScript SDK: <https://github.com/neuphonic/neuphonic-js>
+- Audra OpenAPI: <https://audratalks.com/openapi.yaml>
+- Audra migration guide: <https://audratalks.com/migrate>
 - Zyphra package reference: <https://pypi.org/project/zyphra/>
