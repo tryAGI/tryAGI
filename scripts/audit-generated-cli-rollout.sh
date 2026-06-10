@@ -87,7 +87,7 @@ realpath_portable() {
 }
 
 to_kebab() {
-  python3 -c 'import re, sys; value = re.sub(r"(?<!^)(?=[A-Z])", "-", sys.argv[1]).replace("_", "-").lower(); print(re.sub(r"[^a-z0-9]+", "-", value).strip("-"))' "$1"
+  python3 -c 'import re, sys; value = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1-\2", sys.argv[1]); value = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", value).replace("_", "-").lower(); print(re.sub(r"[^a-z0-9]+", "-", value).strip("-"))' "$1"
 }
 
 to_env_prefix() {
