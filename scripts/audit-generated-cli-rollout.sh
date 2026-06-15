@@ -24,8 +24,9 @@ Audits generated SDK repositories for CLI rollout readiness and writes:
 
 Columns track detected generated SDK projects, OpenAPI specs, manual PackAsTool CLIs,
 generated api-only sources, generated CLI projects, solution-file gaps, trim-publish
-candidates, operation counts, auth/base-url generation hints, optional build-probe
-status, and ready-to-run CLI generation commands for SDKs that do not have a CLI yet.
+candidates, CLI package/readme/regeneration gaps, operation counts, auth/base-url
+generation hints, optional build-probe status, and ready-to-run CLI generation
+commands for SDKs that do not have a CLI yet.
 
 Set TRYAGI_AUTOSDK_CLI='dotnet run --project /path/to/AutoSDK/src/libs/AutoSDK.CLI --'
 to run throwaway probes with a local AutoSDK checkout.
@@ -250,6 +251,124 @@ print(";".join(missing))
 PY
 }
 
+detect_src_cli_gaps() {
+  local generated_cli_projects="$1"
+  if [[ -z "$generated_cli_projects" ]]; then
+    printf 'missing-src-cli'
+    return 0
+  fi
+
+  python3 - "$generated_cli_projects" <<'PY'
+import sys
+
+projects = [value for value in sys.argv[1].split(";") if value]
+missing = [project for project in projects if not project.replace("\\", "/").startswith("src/cli/")]
+print(";".join(missing))
+PY
+}
+
+detect_cli_package_metadata_gaps() {
+  local repo="$1"
+  local generated_cli_projects="$2"
+  [[ -n "$generated_cli_projects" ]] || return 0
+
+  python3 - "$repo" "$generated_cli_projects" <<'PY'
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1])
+projects = [value for value in sys.argv[2].split(";") if value]
+missing = []
+
+for project in projects:
+    project_path = repo / project
+    project_dir = project_path.parent
+    text = project_path.read_text(encoding="utf-8", errors="ignore")
+    gaps = []
+    if not (project_dir / "README.md").is_file():
+        gaps.append("missing-readme")
+    if "<PackageReadmeFile>README.md</PackageReadmeFile>" not in text:
+        gaps.append("missing-package-readme")
+    if '<None Include="README.md" Pack="true"' not in text:
+        gaps.append("missing-readme-pack-item")
+    if gaps:
+        missing.append(f"{project}[{','.join(gaps)}]")
+
+print(";".join(missing))
+PY
+}
+
+detect_root_readme_cli_gaps() {
+  local repo="$1"
+  local generated_cli_projects="$2"
+  [[ -n "$generated_cli_projects" ]] || return 0
+
+  python3 - "$repo" "$generated_cli_projects" <<'PY'
+import pathlib
+import re
+import sys
+
+repo = pathlib.Path(sys.argv[1])
+projects = [value for value in sys.argv[2].split(";") if value]
+readme_path = repo / "README.md"
+if not readme_path.is_file():
+    print(";".join(f"{project}[missing-root-readme]" for project in projects))
+    raise SystemExit(0)
+
+readme = readme_path.read_text(encoding="utf-8", errors="ignore")
+missing = []
+for project in projects:
+    project_text = (repo / project).read_text(encoding="utf-8", errors="ignore")
+    package_match = re.search(r"<PackageId>([^<]+)</PackageId>", project_text)
+    tool_match = re.search(r"<ToolCommandName>([^<]+)</ToolCommandName>", project_text)
+    package_id = package_match.group(1) if package_match else pathlib.Path(project).stem
+    tool_name = tool_match.group(1) if tool_match else ""
+    gaps = []
+    if package_id not in readme:
+        gaps.append("missing-package-install")
+    if tool_name and f"{tool_name} api --help" not in readme:
+        gaps.append("missing-tool-help")
+    if gaps:
+        missing.append(f"{project}[{','.join(gaps)}]")
+
+print(";".join(missing))
+PY
+}
+
+detect_generate_script_cli_gaps() {
+  local repo="$1"
+  local generate_script="$2"
+  local generated_cli_projects="$3"
+  [[ -n "$generated_cli_projects" ]] || return 0
+
+  python3 - "$repo" "$generate_script" "$generated_cli_projects" <<'PY'
+import os
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1])
+script_arg = sys.argv[2]
+projects = [value for value in sys.argv[3].split(";") if value]
+if not script_arg:
+    print(";".join(f"{project}[missing-generate-script]" for project in projects))
+    raise SystemExit(0)
+
+script_path = pathlib.Path(script_arg)
+text = script_path.read_text(encoding="utf-8", errors="ignore")
+script_dir = script_path.parent
+missing = []
+
+for project in projects:
+    project_dir = pathlib.Path(project).parent
+    output_from_repo = project_dir.as_posix()
+    output_from_script = pathlib.Path(os.path.relpath(repo / project_dir, script_dir)).as_posix()
+    if "cli-project" not in text or (output_from_repo not in text and output_from_script not in text):
+        missing.append(project)
+
+print(";".join(missing))
+PY
+}
+
 append_rollout_command() {
   local repo="$1"
   local repo_name="$2"
@@ -419,7 +538,7 @@ run_build_probe() {
 } > "$COMMANDS"
 
 {
-  printf 'repo\tsdk_project\tspec\toperation_count\tsecurity_schemes\tbase_url_override\tmanual_cli_projects\tgenerated_api_sources\tgenerated_cli_projects\tsolution_cli_gaps\ttrim_candidates\tbuild_probe\tnotes\n'
+  printf 'repo\tsdk_project\tspec\toperation_count\tsecurity_schemes\tbase_url_override\tmanual_cli_projects\tgenerated_api_sources\tgenerated_cli_projects\tsrc_cli_gaps\tsolution_cli_gaps\tcli_package_metadata_gaps\troot_readme_cli_gaps\tgenerate_script_cli_gaps\ttrim_candidates\tbuild_probe\tnotes\n'
 
   probe_count=0
   find "$WORKSPACE" -mindepth 1 -maxdepth 1 -type d -name '.git' -prune -o -type d -print |
@@ -439,8 +558,12 @@ run_build_probe() {
       manual_cli_projects="$(detect_manual_cli_projects "$repo")"
       generated_api_sources="$(detect_generated_api_sources "$repo")"
       generated_cli_projects="$(detect_generated_cli_projects "$repo")"
+      src_cli_gaps="$(detect_src_cli_gaps "$generated_cli_projects")"
       solution_cli_gaps="$(detect_solution_cli_gaps "$repo" "$generated_cli_projects")"
       generate_script="$(detect_generate_script "$spec")"
+      cli_package_metadata_gaps="$(detect_cli_package_metadata_gaps "$repo" "$generated_cli_projects")"
+      root_readme_cli_gaps="$(detect_root_readme_cli_gaps "$repo" "$generated_cli_projects")"
+      generate_script_cli_gaps="$(detect_generate_script_cli_gaps "$repo" "$generate_script" "$generated_cli_projects")"
       operation_count="$(count_openapi_operations "$spec")"
       security_schemes="$(detect_generate_arg_values "$generate_script" "--security-scheme")"
       base_url_override="$(detect_generate_arg_values "$generate_script" "--base-url")"
@@ -448,6 +571,14 @@ run_build_probe() {
       notes=ready
       if [[ -n "$solution_cli_gaps" ]]; then
         notes=generated-cli-missing-solution
+      elif [[ -n "$src_cli_gaps" && "$src_cli_gaps" != "missing-src-cli" ]]; then
+        notes=generated-cli-outside-src-cli
+      elif [[ -n "$cli_package_metadata_gaps" ]]; then
+        notes=generated-cli-missing-package-metadata
+      elif [[ -n "$root_readme_cli_gaps" ]]; then
+        notes=generated-cli-missing-root-readme-snippet
+      elif [[ -n "$generate_script_cli_gaps" ]]; then
+        notes=generated-cli-missing-regeneration
       elif [[ -n "$generated_cli_projects" ]]; then
         notes=ready
       elif [[ -z "$manual_cli_projects" ]]; then
@@ -468,7 +599,7 @@ run_build_probe() {
         append_rollout_command "$repo" "$repo_name" "$(relpath "$sdk_project" "$repo")" "$(relpath "$spec" "$repo")" "$generate_script"
       fi
 
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$repo_name" \
         "$(relpath "$sdk_project" "$repo")" \
         "$(relpath "$spec" "$repo")" \
@@ -478,7 +609,11 @@ run_build_probe() {
         "$manual_cli_projects" \
         "$generated_api_sources" \
         "$generated_cli_projects" \
+        "$src_cli_gaps" \
         "$solution_cli_gaps" \
+        "$cli_package_metadata_gaps" \
+        "$root_readme_cli_gaps" \
+        "$generate_script_cli_gaps" \
         "$trim_candidates" \
         "$build_probe" \
         "$notes"
@@ -503,15 +638,19 @@ with open(md_path, "w", encoding="utf-8") as handle:
     handle.write("# Generated CLI Rollout Audit\n\n")
     handle.write(f"Source: `{tsv_path}`\n\n")
     handle.write(f"Commands: `{commands_path}`\n\n")
-    handle.write("| Repo | SDK project | Spec | Ops | Auth override | Base URL override | Manual CLI | Generated API sources | Generated CLI project | Solution CLI gaps | Build probe | Notes |\n")
-    handle.write("| --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+    handle.write("| Repo | SDK project | Spec | Ops | Auth override | Base URL override | Manual CLI | Generated API sources | Generated CLI project | src/cli gaps | Solution CLI gaps | Package metadata gaps | Root README gaps | Regeneration gaps | Build probe | Notes |\n")
+    handle.write("| --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
     for row in rows:
         handle.write(
             f"| {row['repo']} | `{row['sdk_project']}` | `{row['spec']}` | "
             f"{row['operation_count']} | {value(row, 'security_schemes')} | "
             f"{value(row, 'base_url_override')} | {value(row, 'manual_cli_projects')} | "
             f"{value(row, 'generated_api_sources')} | {value(row, 'generated_cli_projects')} | "
+            f"{value(row, 'src_cli_gaps')} | "
             f"{value(row, 'solution_cli_gaps')} | "
+            f"{value(row, 'cli_package_metadata_gaps')} | "
+            f"{value(row, 'root_readme_cli_gaps')} | "
+            f"{value(row, 'generate_script_cli_gaps')} | "
             f"{row['build_probe']} | {row['notes']} |\n"
         )
 PY
