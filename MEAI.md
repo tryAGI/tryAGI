@@ -118,6 +118,21 @@ These providers get `IChatClient` + `IEmbeddingGenerator` through `CustomProvide
 | OpenCode Zen | `CustomProviders.OpenCodeZen(key)` | `qwen3.5-plus` |
 | OpenCode Go | `CustomProviders.OpenCodeGo(key)` | `kimi-k2.6` |
 
+## Text-to-Speech Adapter Coverage
+
+| Provider / model family | Repository | MEAI surface | Default / primary model |
+|-------------------------|------------|--------------|-------------------------|
+| OpenAI GPT-4o mini TTS | `OpenAI/` | `ITextToSpeechClient` | `gpt-4o-mini-tts` |
+| Cartesia Sonic | `Cartesia/` | `ITextToSpeechClient` | `sonic-3.5` |
+| Deepgram Aura-2 | `Deepgram/` | `ITextToSpeechClient` | `aura-2-asteria-en` |
+| Rime Mist / Coda | `Rime/` | `ITextToSpeechClient` | `mistv3` |
+| ElevenLabs Flash / Turbo | `ElevenLabs/` | `ITextToSpeechClient` | `eleven_flash_v2_5` |
+| Fish Audio S2.1 Pro Free | `FishAudio/` | `ITextToSpeechClient` | `s2.1-pro-free` |
+| Hume Octave | `HumeAI/` | `ITextToSpeechClient` | `octave` |
+| Google Cloud Text-to-Speech | External official SDK | Not represented by a tryAGI repo | Google Discovery/gRPC client libraries |
+| Amazon Polly | External official SDK | Not represented by a tryAGI repo | AWS SDK for Polly / SigV4 |
+| Azure Speech | External official SDK | Not represented by a tryAGI repo | Azure Speech SDK / regional REST |
+
 OAuth-only or local-tool surfaces such as OpenAI Codex OAuth, Qwen OAuth, Google Gemini OAuth/Code Assist, GitHub Copilot, and GitHub Copilot ACP are intentionally not exposed as `CustomProviders` defaults. They depend on local accounts, local CLIs, or ACP process transport rather than a stable bearer-token HTTP base URL. AWS Bedrock is covered by the standalone `AwsBedrock/` SDK for the current Bedrock OpenAI-compatible bearer-key APIs; IAM/SigV4-native Bedrock runtime calls remain outside `CustomProviders`.
 
 ## MEAI Version
@@ -310,10 +325,10 @@ Reference implementations:
 | `Mistral/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools, images) |
 | `Cohere/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Partial (text, tools; no true streaming) / Full (embeddings) |
 | `Reka/` | `IChatClient` + `ISpeechToTextClient` | 10.4.1 | Full (text, streaming, tools, images/audio/video/PDF URLs, speech-to-text) |
-| `ElevenLabs/` | `ISpeechToTextClient` | 10.4.1 | Full |
+| `ElevenLabs/` | `ISpeechToTextClient` + `ITextToSpeechClient` | 10.4.1 | Full (STT) / Full TTS via `/v1/text-to-speech/{voice_id}` with `eleven_flash_v2_5`, streaming, output format controls, and voice/model metadata |
 | `AssemblyAI/` | `ISpeechToTextClient` | 10.4.1 | Full |
 | `Gladia/` | `ISpeechToTextClient` | 10.4.1 | Full (upload + poll, 100+ languages, RawRepresentationFactory) |
-| `Cartesia/` | `ISpeechToTextClient` | 10.4.1 | Full (synchronous STT, 115+ languages, word timestamps) |
+| `Cartesia/` | `ISpeechToTextClient` + `ITextToSpeechClient` | 10.4.1 | Full (synchronous STT, 115+ languages, word timestamps) / Full TTS for Sonic models with speed/emotion/language/output-format options |
 | `CSharpToJsonSchema/` | Tooling (`MeaiFunction`, `AsMeaiTools()`) | 10.4.1 | Framework/tooling support |
 | `LangChain.Providers/` | Bridge (`ChatClientModel` adapter) | 9.6.0 | Full bridge between MEAI <> LangChain |
 | `LangChain/` | Consumer | 10.4.1 | Uses MEAI in CLI |
@@ -321,7 +336,7 @@ Reference implementations:
 | `AI21/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools, reasoning) |
 | `Jina/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, multimodal extensions for images/PDFs) |
 | `VoyageAI/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, token usage) |
-| `OpenAI/` | `IChatClient` + `IEmbeddingGenerator` | 10.4.1 | Full (text, streaming, tools, images, JSON/structured output, temp/topP/seed, AdditionalProperties pass-through) / Full (embeddings with dimensions) |
+| `OpenAI/` | `IChatClient` + `IEmbeddingGenerator` + `ITextToSpeechClient` | 10.4.1 | Full (text, streaming, tools, images, JSON/structured output, temp/topP/seed, AdditionalProperties pass-through) / Full (embeddings with dimensions) / Full TTS via `gpt-4o-mini-tts`, built-in/custom voices, instructions, buffered audio, and chunked streaming |
 | `Gonka/` | `IChatClient` | 10.5.0 | Full (text, streaming, tools, image URL/data content, JSON response-format hints; direct network signing) |
 | `Coze/` | `IChatClient` | 10.4.1 | Partial (text, streaming, reasoning text; bot-centric chat requiring `bot_id` and `user_id`; provider-issued tool calls are not yet emitted as `FunctionCallContent`) |
 | `Tavily/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsExtractTool()` wrappers for use with any `IChatClient`) |
@@ -329,7 +344,7 @@ Reference implementations:
 | `Groq/` | `IChatClient` + `IEmbeddingGenerator` (via `tryAGI.OpenAI`) | 10.4.1 | Full — uses `CustomProviders.Groq()` from `tryAGI.OpenAI` (OpenAI-compatible API) |
 | `Writer/` | `IChatClient` | 10.4.1 | Full (text, streaming, tools) |
 | `Mixedbread/` | `IEmbeddingGenerator` | 10.4.1 | Full (embeddings, custom dimensions, token usage) |
-| `Deepgram/` | `ISpeechToTextClient` | 10.4.1 | Full (URL-based pre-recorded transcription, timestamps) |
+| `Deepgram/` | `ISpeechToTextClient` + `ITextToSpeechClient` | 10.4.1 | Full (URL-based pre-recorded transcription, timestamps) / Full TTS for Aura-2 with model/encoding/container/sample-rate options and binary streaming |
 | `Phoenix/` | `AIFunction` tools | 10.4.1 | Full (`AsGetPromptTool()`, `AsListPromptsTool()`, `AsAnnotateSpanTool()`, `AsListTracesTool()` for use with any `IChatClient`) |
 | `Exa/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsGetContentsTool()` + `AsAnswerTool()` wrappers for use with any `IChatClient`) |
 | `Serper/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsNewsTool()` wrappers for use with any `IChatClient`; `PrepareRequest` auth hook converts Bearer to X-API-KEY) |
@@ -342,7 +357,7 @@ Reference implementations:
 | `Composio/` | `AIFunction` tools | 10.4.1 | Full (`AsExecuteToolTool()` + `AsListToolsTool()` + `AsListToolkitsTool()` + `AsListConnectedAccountsTool()` wrappers for use with any `IChatClient`) |
 | `Helicone/` | `AIFunction` tools | 10.4.1 | Full (`AsGetTotalCostTool()` + `AsGetTotalRequestsTool()` + `AsGetAverageLatencyTool()` + `AsListPromptsTool()` wrappers for use with any `IChatClient`) |
 | `BraveSearch/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsNewsTool()` wrappers for use with any `IChatClient`; `PrepareRequest` auth hook converts Bearer to X-Subscription-Token) |
-| `FishAudio/` | `ISpeechToTextClient` + `AIFunction` tools | 10.4.1 | Full (STT via `/v1/asr` with timestamps) / Full (`AsTextToSpeechTool()` + `AsListModelsTool()` + `AsGetModelTool()` wrappers for use with any `IChatClient`) |
+| `FishAudio/` | `ISpeechToTextClient` + `ITextToSpeechClient` + `AIFunction` tools | 10.4.1 | Full (STT via `/v1/asr` with timestamps) / Full TTS using `s2.1-pro-free`, reference voices, prosody, latency/format controls, and timestamp streaming / Full (`AsTextToSpeechTool()` + `AsListModelsTool()` + `AsGetModelTool()` wrappers for use with any `IChatClient`) |
 | `SarvamAI/` | `IChatClient` + `ISpeechToTextClient` + `AIFunction` tools | 10.4.1 | Full (chat, STT for 22+ Indian languages, `AsTranslateTool()` + `AsTransliterateTool()` wrappers) |
 | `KlingAI/` | `AIFunction` tools | 10.4.1 | Full (`AsTextToVideoTool()` + `AsImageToVideoTool()` + `AsImageGenerationTool()` + `AsGetTextToVideoTaskTool()` + `AsGetImageToVideoTaskTool()` + `AsGetImageGenerationTaskTool()` wrappers for use with any `IChatClient`) |
 | `CursorAgents/` | `AIFunction` tools | 10.4.1 | Full (`AsCreateAgentTool()` + `AsListAgentsTool()` + `AsGetAgentTool()` wrappers for use with any `IChatClient`) |
@@ -357,6 +372,7 @@ Reference implementations:
 | `Lakera/` | `AIFunction` tools | 10.4.1 | Full (`AsGuardTool()` + `AsGuardResultsTool()` wrappers for screening content for prompt injection, PII, jailbreaks) |
 | `Guardrails/` | `AIFunction` tools | 10.4.1 | Full (`AsValidateTool()` + `AsListGuardsTool()` + `AsGetGuardTool()` wrappers for LLM validation, hallucination detection, PII protection) |
 | `Murf/` | `AIFunction` tools | 10.4.1 | Full (`AsTextToSpeechTool()` + `AsListVoicesTool()` + `AsTranslateTool()` wrappers for use with any `IChatClient`) |
+| `Rime/` | `ITextToSpeechClient` | 10.4.1 | Full TTS for Mist/Coda model IDs with speaker, language, sampling rate, speed, normalization, and binary streaming controls |
 | `RevAI/` | `ISpeechToTextClient` + `AIFunction` tools | 10.4.1 | Full (URL + file upload transcription, poll for completion) / Full (`AsTranscribeUrlTool()` + `AsGetJobStatusTool()` + `AsListJobsTool()` wrappers for use with any `IChatClient`) |
 | `Photoroom/` | `AIFunction` tools | 10.4.1 | Full (`AsRemoveBackgroundTool()` + `AsGenerateBackgroundTool()` + `AsRelightTool()` wrappers for use with any `IChatClient`) |
 | `Nanonets/` | `AIFunction` tools | 10.4.1 | Full (`AsOcrTool()` + `AsClassifyTool()` + `AsExtractTool()` wrappers for use with any `IChatClient`) |
@@ -365,7 +381,7 @@ Reference implementations:
 | `LocalSpeechToText/` | `ISpeechToTextClient` + `ITextToSpeechClient` | 10.5.0 | Spike/full local adapters for sherpa-onnx, Whisper.net, and Vosk STT plus sherpa-onnx offline TTS; streaming where the underlying local engine supports it, word/token/speaker/audio metadata via `AdditionalProperties` |
 | `Shotstack/` | `AIFunction` tools | 10.4.1 | Full (`AsGetRenderStatusTool()` + `AsListTemplatesTool()` + `AsProbeTool()` + `AsListAssetsTool()` wrappers for use with any `IChatClient`) |
 | `OpenRouter/` | `AIFunction` tools | 10.4.1 | Full (`AsListModelsTool()` + `AsGetModelTool()` + `AsGetGenerationTool()` + `AsGetCreditsTool()` wrappers for use with any `IChatClient`) |
-| `HumeAI/` | `AIFunction` tools | 10.4.1 | Full (`AsStartBatchJobTool()` + `AsGetJobStatusTool()` + `AsListJobsTool()` + `AsSynthesizeSpeechTool()` + `AsListVoicesTool()` + `AsListChatsTool()` wrappers for use with any `IChatClient`) |
+| `HumeAI/` | `ITextToSpeechClient` + `AIFunction` tools | 10.4.1 | Full TTS for Octave with voice IDs/names/providers, version selection, descriptions, instant mode, output formats, and streaming / Full (`AsStartBatchJobTool()` + `AsGetJobStatusTool()` + `AsListJobsTool()` + `AsSynthesizeSpeechTool()` + `AsListVoicesTool()` + `AsListChatsTool()` wrappers for use with any `IChatClient`) |
 | `Nixtla/` | `AIFunction` tools | 10.4.1 | Full (`AsForecastTool()` + `AsAnomalyDetectionTool()` + `AsListModelsTool()` wrappers for use with any `IChatClient`) |
 | `GroundX/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsIngestUrlTool()` + `AsGetIngestStatusTool()` + `AsListBucketsTool()` wrappers for use with any `IChatClient`) |
 | `PredictionGuard/` | `AIFunction` tools | 10.4.1 | Full (`AsFactualityCheckTool()` + `AsToxicityCheckTool()` + `AsPiiDetectionTool()` + `AsInjectionDetectionTool()` wrappers for use with any `IChatClient`) |
@@ -421,7 +437,7 @@ These SDKs expand generation coverage but do not currently include hand-written 
 - `DashScope/` — native Alibaba Cloud Model Studio text, multimodal, image, and embedding APIs; OpenAI-compatible chat remains available via `CustomProviders.DashScope*()` in `tryAGI.OpenAI`.
 - `Moonshot/`, `TencentTokenHub/`, `StepFun/`, `ZAI/`, `Arcee/` — direct generated SDKs for provider-native or provider-documented APIs; chat access also remains available via `CustomProviders.*()` where OpenAI-compatible endpoints are sufficient.
 - `MiniMax/` — media generation SDK for video, music, TTS, voice clone, and files; chat/embeddings remain available via `CustomProviders.Minimax()` in `tryAGI.OpenAI`.
-- `PlayHT/`, `Rime/`, `Speechify/`, `VoiceAI/` — text-to-speech or voice APIs; no hand-written `ITextToSpeechClient` adapter has been implemented yet.
+- `PlayHT/`, `Speechify/`, `VoiceAI/` — text-to-speech or voice APIs; no hand-written `ITextToSpeechClient` adapter has been implemented yet.
 - `ResembleAI/`, `Revocalize/` — voice cloning, synthesis, watermarking, and conversion APIs; no single matching MEAI abstraction.
 - `Reverie/` — language AI APIs including STT, TTS, translation, and transliteration; possible future `ISpeechToTextClient` candidate, but no adapter has been implemented.
 
@@ -459,7 +475,7 @@ These SDKs have no applicable MEAI interface and are not expected to implement o
 - `Nanonets/` — Document AI/OCR platform (`AIFunction` tools for OCR, classification, extraction; no standard MEAI interface)
 - `Shotstack/` — Programmatic video editing platform (`AIFunction` tools for render status, templates, probing, assets; no standard MEAI interface like IChatClient/ISpeechToTextClient)
 - `OpenRouter/` — LLM gateway/routing platform (`AIFunction` tools for model discovery, generation stats, credits; chat completions via `CustomProviders.OpenRouter()` in `tryAGI.OpenAI`)
-- `HumeAI/` — Emotion AI platform (`AIFunction` tools for batch emotion analysis, TTS, voice/chat management; no standard MEAI interface like IChatClient/ISpeechToTextClient)
+- `HumeAI/` — Emotion AI platform (`ITextToSpeechClient` for Octave plus `AIFunction` tools for batch emotion analysis, TTS, voice/chat management)
 - `Nixtla/` — Time series AI platform (`AIFunction` tools for forecasting, anomaly detection, model listing; no standard MEAI interface)
 - `GroundX/` — RAG infrastructure platform (`AIFunction` tools for document ingestion, search, bucket management; no standard MEAI interface)
 - `PredictionGuard/` — LLM + guardrails platform (`AIFunction` tools for factuality, toxicity, PII, injection detection; potential `IChatClient` for chat completions)

@@ -7,6 +7,14 @@ identified. Direct provider SDKs are preferred. Open-weight models are tracked
 through hosted inference SDKs unless the model publisher exposes a first-party
 HTTP API contract.
 
+2026-06-29 update: first-class `ITextToSpeechClient` adapters now cover the
+highest-priority hosted agent TTS targets in this workspace: Cartesia Sonic,
+Deepgram Aura-2, Rime Mist/Coda, ElevenLabs Flash, Fish Audio S2.1 Pro Free,
+OpenAI `gpt-4o-mini-tts`, and Hume Octave. Google Cloud Text-to-Speech, Amazon
+Polly, and Azure Speech remain external official-SDK paths because their native
+contracts are Google Discovery/gRPC, AWS SigV4 service models, and Azure
+regional Speech SDK/REST flows rather than generated OpenAPI SDKs in tryAGI.
+
 ## New SDKs Added
 
 | Provider | SDK | Source contract |
@@ -25,17 +33,18 @@ HTTP API contract.
 | Inworld TTS / Realtime TTS | `Inworld/` | Existing direct SDK. |
 | Google Gemini TTS | `Google.Gemini/` | Existing direct SDK for Gemini API models. |
 | Google Studio, Journey, Chirp, WaveNet, Neural2, Standard | External official SDK / candidate | Google Cloud Text-to-Speech is public, but the contract is Google Discovery/gRPC rather than an OpenAPI document in this workspace. Use Google's client libraries unless a hand-maintained OpenAPI SDK is explicitly desired. |
-| ElevenLabs models | `ElevenLabs/` | Existing direct SDK. |
+| ElevenLabs Flash / Turbo / voice models | `ElevenLabs/` | Existing direct SDK plus `ITextToSpeechClient`; default agent-latency model is `eleven_flash_v2_5`, with voice, output-format, and streaming support. |
 | MiniMax Speech/T2A models | `MiniMax/` | Existing direct SDK. |
 | StepFun Step TTS / Audio EditX | `StepFun/` / hosted open-weight SDKs | Existing direct SDK for StepFun APIs; open-weight models can also be reached through hosted inference providers when available. |
-| Fish Audio / OpenAudio / Fish Speech | `FishAudio/` / `HuggingFace/` | Existing direct SDK plus hosted/open-weight coverage. |
+| Fish Audio / OpenAudio / Fish Speech | `FishAudio/` / `HuggingFace/` | Existing direct SDK plus `ITextToSpeechClient`; default hosted model is `s2.1-pro-free`, with reference voices, prosody, latency, output-format, and timestamp streaming support. |
 | Microsoft Azure Neural / Azure HD | External official SDK / candidate | Azure Speech REST is public but uses Azure token exchange and regional endpoints. Use Azure Speech SDK unless a hand-maintained OpenAPI SDK is requested. |
 | Microsoft MAI-Voice-1 | Blocked | No standalone public endpoint-level API contract found for the listed model. |
 | Microsoft VibeVoice | Hosted/open-weight coverage | Open-weight model family; no first-party hosted API SDK target identified. |
-| OpenAI TTS | `OpenAI/` | Existing direct SDK. |
+| OpenAI TTS | `OpenAI/` | Existing direct SDK plus `ITextToSpeechClient` for `gpt-4o-mini-tts`, built-in/custom voices, instructions, buffered audio, and chunked streaming. |
 | Audra audra-core | `Audra/` / `OpenAI/` compatibility path | New direct SDK for Audra's native v2 API. Simple drop-in TTS migration can also use Audra's OpenAI-compatible `/v1/audio/speech` surface through `CustomProviders.Audra(...)` in the OpenAI SDK. |
 | Gradium TTS | `Gradium/` | New direct SDK. |
-| Cartesia Sonic | `Cartesia/` | Existing direct SDK. |
+| Cartesia Sonic | `Cartesia/` | Existing direct SDK plus `ITextToSpeechClient`; default hosted model is `sonic-3.5`, with voice, language, speed, emotion, format, and streaming controls. |
+| Deepgram Aura-2 | `Deepgram/` | Existing direct SDK plus `ITextToSpeechClient`; default hosted model is `aura-2-asteria-en`, with encoding, container, sample-rate, and binary streaming controls. |
 | NVIDIA Magpie | Hosted/open-weight coverage | Open-weight model family; use `HuggingFace/`, `Replicate/`, `Fal/`, or other hosting SDKs when deployed. |
 | Speechify SIMBA | `Speechify/` | Existing direct SDK. |
 | Kokoro | Hosted/open-weight coverage | Open-weight model; no first-party hosted API contract. |
@@ -43,11 +52,11 @@ HTTP API contract.
 | Mistral Voxtral TTS | `Mistral/` / hosted open-weight SDKs | Existing Mistral SDK; open-weight variants can be reached through hosted inference providers when available. |
 | AsyncFlow / Async Voice API | `AsyncAI/` | New direct SDK from manual OpenAPI based on official docs. |
 | Maya Research Maya1 | Hosted/open-weight coverage | Open-weight model; no first-party hosted API contract. |
-| Hume AI Octave | `HumeAI/` | Existing direct SDK. |
+| Hume AI Octave | `HumeAI/` | Existing direct SDK plus `ITextToSpeechClient`; default model family is `octave`, with version selection, voice IDs/names/providers, descriptions, output formats, instant mode, and streaming. |
 | Smallest.ai Lightning | `SmallestAI/` | New direct SDK. |
 | Resemble AI Chatterbox | `ResembleAI/` / hosted open-weight SDKs | Existing direct SDK plus hosted/open-weight coverage. |
 | Xiaomi MiMo-V2-TTS | Hosted/open-weight coverage | Open-weight model; no first-party hosted API contract. |
-| Rime Arcana / Mist | `Rime/` | Existing direct SDK. |
+| Rime Arcana / Mist / Coda | `Rime/` | Existing direct SDK plus `ITextToSpeechClient`; default hosted model is `mistv3`, with `mistv2`/`arcana` model selection and Coda-compatible speakers through `VoiceId`. |
 | Zyphra Zonos | Blocked for direct SDK | Public package/model references exist, but no public OpenAPI or endpoint-level API reference was found. Use hosted/open-weight paths until Zyphra publishes a stable public contract. |
 | LMNT | `LMNT/` | New direct SDK. |
 | Neuphonic TTS | `Neuphonic/` | New direct SDK from a focused manual OpenAPI spec covering SSE TTS, voices, and agent management. The live FastAPI OpenAPI exists but lacks useful response schemas/security, so the checked-in spec is typed from official docs and SDKs. |
@@ -82,6 +91,8 @@ For any blocked entry, the minimum SDK intake criteria are:
 - Smallest.ai API reference/OpenAPI: <https://docs.smallest.ai/waves/api-reference>
 - Gradium API reference: <https://docs.gradium.ai/api-reference/introduction>
 - Async Voice API docs: <https://docs.async.com/llms.txt>
+- OpenAI text-to-speech docs: <https://developers.openai.com/api/docs/guides/text-to-speech>
+- Fish Audio models overview: <https://docs.fish.audio/developer-guide/models-pricing/models-overview>
 - Google Cloud Text-to-Speech REST reference: <https://docs.cloud.google.com/text-to-speech/docs/reference/rest>
 - Azure Speech text-to-speech REST reference: <https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech>
 - Amazon Polly API reference: <https://docs.aws.amazon.com/polly/latest/dg/API_Reference.html>
