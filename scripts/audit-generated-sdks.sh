@@ -12,6 +12,8 @@ PUBLISH_WORKFLOW_FILE="${TRYAGI_PUBLISH_WORKFLOW_FILE:-dotnet.yml}"
 NEW_REPO_DAYS="${TRYAGI_NEW_REPO_DAYS:-7}"
 SIGNAL_RUN_LIMIT="${TRYAGI_SIGNAL_RUN_LIMIT:-5}"
 SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-^(OpenAI)$}"
+GH_API_RETRIES="${TRYAGI_GH_API_RETRIES:-3}"
+GH_API_RETRY_DELAY_SECONDS="${TRYAGI_GH_API_RETRY_DELAY_SECONDS:-2}"
 MODE="summary"
 REPO_FILTER=""
 
@@ -43,6 +45,8 @@ Environment:
   TRYAGI_NEW_REPO_DAYS             Repo age threshold for classifying no-runs as onboarding gaps. Default: 7
   TRYAGI_SIGNAL_RUN_LIMIT           How many recent Publish runs to inspect when finding the latest completed run. Default: 5
   TRYAGI_SIGNAL_SKIP_IGNORE_REGEX   Regex for repos whose skipped/inconclusive test counts should be ignored in summaries. Default: ^(OpenAI)$
+  TRYAGI_GH_API_RETRIES             How many times to retry transient GitHub API calls. Default: 3
+  TRYAGI_GH_API_RETRY_DELAY_SECONDS Delay between GitHub API retry attempts. Default: 2
 EOF
 }
 
@@ -98,6 +102,28 @@ apply_env_overrides() {
   NEW_REPO_DAYS="${TRYAGI_NEW_REPO_DAYS:-$NEW_REPO_DAYS}"
   SIGNAL_RUN_LIMIT="${TRYAGI_SIGNAL_RUN_LIMIT:-$SIGNAL_RUN_LIMIT}"
   SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-$SIGNAL_SKIP_IGNORE_REGEX}"
+  GH_API_RETRIES="${TRYAGI_GH_API_RETRIES:-$GH_API_RETRIES}"
+  GH_API_RETRY_DELAY_SECONDS="${TRYAGI_GH_API_RETRY_DELAY_SECONDS:-$GH_API_RETRY_DELAY_SECONDS}"
+}
+
+gh_api_with_retries() {
+  local attempt=1
+  local response
+
+  while (( attempt <= GH_API_RETRIES )); do
+    if response="$(gh api "$@" 2>/dev/null)"; then
+      printf '%s\n' "$response"
+      return 0
+    fi
+
+    if (( attempt < GH_API_RETRIES )); then
+      sleep "$GH_API_RETRY_DELAY_SECONDS"
+    fi
+
+    ((attempt++))
+  done
+
+  return 1
 }
 
 require_github_auth() {
@@ -207,9 +233,7 @@ latest_run_json() {
 
   api_target="$(repo_api_target "$repo")"
 
-  if ! response="$(
-    gh api "repos/$api_target/actions/workflows/$workflow_file/runs?per_page=$limit" 2>/dev/null
-  )"; then
+  if ! response="$(gh_api_with_retries "repos/$api_target/actions/workflows/$workflow_file/runs?per_page=$limit")"; then
     return 1
   fi
 
@@ -249,7 +273,7 @@ repo_created_at() {
 
   if [[ ! -f "$cache_path" ]]; then
     api_target="$(repo_api_target "$repo")"
-    if ! gh api "repos/$api_target" --jq '.created_at // ""' > "$cache_path" 2>/dev/null; then
+    if ! gh_api_with_retries "repos/$api_target" --jq '.created_at // ""' > "$cache_path"; then
       rm -f "$cache_path"
       return 1
     fi
@@ -456,7 +480,7 @@ write_settings_report() {
     bootstrap_status="$(cut -f1 <<< "$bootstrap_info")"
     bootstrap_details="$(cut -f2- <<< "$bootstrap_info")"
 
-    if settings_row="$(gh api "repos/$api_target" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv' 2>/dev/null)"; then
+    if settings_row="$(gh_api_with_retries "repos/$api_target" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv')"; then
       printf '%s\t%s\t%s\n' "$settings_row" "$bootstrap_status" "$bootstrap_details" >> "$output_path"
     else
       printf '%s\tunknown\tunknown\tunknown\t%s\t%s\n' "$repo" "$bootstrap_status" "$bootstrap_details" >> "$output_path"
