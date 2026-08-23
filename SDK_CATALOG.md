@@ -122,6 +122,11 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 
 `Google.Gemini/` covers Google Lyria music generation, including the Producer.ai / Google Flow Music-style path, through [Gemini API Lyria helpers](https://ai.google.dev/gemini-api/docs/music-generation). Do not create a separate `Producer.ai/` SDK unless Google publishes a first-party Producer.ai or Flow Music API that is distinct from Gemini/Lyria.
 
+**Music Platforms / Playback:**
+`SoundCloud/`, `Spotify/`
+
+Both SDKs are generated from provider-owned OpenAPI documents. `SoundCloud/` covers discovery, streams, playlists, likes, reposts, and user libraries; `Spotify/` covers catalog search, playback, playlists, libraries, and personalization.
+
 **Synthetic Data / Privacy:**
 `Gretel/`
 
