@@ -19,7 +19,7 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|briefing|repos|local-builds|local-trims] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   summary    Write settings + workflow TSV reports and print a short summary.
@@ -27,6 +27,7 @@ Modes:
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
   signals    Write generated-sdk-log-signals.tsv by scanning the latest completed Publish logs.
+  representations Audit OpenAPI media representations and write generated-sdk-representations.tsv.
   briefing   Write all reports plus daily-briefing.txt.
   repos      Print the generated SDK repos detected in the current workspace.
   local-builds Build each detected generated SDK solution locally and write generated-sdk-local-builds.tsv.
@@ -147,7 +148,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      summary|settings|workflows|issues|signals|briefing|repos|local-builds|local-trims)
+      summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims)
         MODE="$1"
         shift
         ;;
@@ -834,6 +835,54 @@ write_local_trims_report() {
   printf '%s\n' "$output_path"
 }
 
+write_representations_report() {
+  local output_path="$OUT_DIR/generated-sdk-representations.tsv"
+  local all_output_path="$OUT_DIR/.generated-sdk-representations-all.tsv"
+  local repos_path="$OUT_DIR/.generated-sdk-representation-repos.txt"
+  local log_path="$OUT_DIR/generated-sdk-representations.log"
+
+  mkdir -p "$OUT_DIR"
+  list_generated_sdk_repos > "$repos_path"
+  autosdk audit-representations "$ROOT_DIR" \
+    --format tsv \
+    --output "$all_output_path" > "$log_path" 2>&1
+
+  python3 - <<'PY' "$all_output_path" "$repos_path" "$output_path"
+import csv
+import sys
+
+all_output_path, repos_path, output_path = sys.argv[1:]
+with open(repos_path, encoding="utf-8") as f:
+    repos = {line.strip() for line in f if line.strip()}
+
+with open(all_output_path, encoding="utf-8", newline="") as source_file:
+    reader = csv.DictReader(source_file, delimiter="\t")
+    fieldnames = reader.fieldnames or []
+    rows = []
+    for row in reader:
+        source = (row.get("source") or "").replace("\\", "/")
+        repo = source.split("/", 1)[0]
+        if repo in repos:
+            rows.append(row)
+
+with open(output_path, "w", encoding="utf-8", newline="") as output_file:
+    writer = csv.DictWriter(output_file, fieldnames=fieldnames, delimiter="\t")
+    writer.writeheader()
+    writer.writerows(rows)
+PY
+
+  printf '%s\n' "$output_path"
+}
+
+print_representation_summary() {
+  local representations_path="$1"
+
+  printf 'Representation report: %s\n' "$representations_path"
+  printf 'Representation findings: %s\n' "$(awk -F '\t' 'NR > 1 { count++ } END { print count + 0 }' "$representations_path")"
+  printf 'Representation errors: %s\n' "$(awk -F '\t' 'NR > 1 && $7 == "error" { count++ } END { print count + 0 }' "$representations_path")"
+  printf 'Representation warnings: %s\n' "$(awk -F '\t' 'NR > 1 && $7 == "warning" { count++ } END { print count + 0 }' "$representations_path")"
+}
+
 print_local_build_summary() {
   local local_builds_path="$1"
 
@@ -881,9 +930,10 @@ render_briefing_text() {
   local workflows_path="$2"
   local issues_path="$3"
   local signals_path="$4"
-  local output_path="$5"
+  local representations_path="$5"
+  local output_path="$6"
 
-  python3 - <<'PY' "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$output_path"
+  python3 - <<'PY' "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$output_path"
 import csv
 import os
 import re
@@ -891,7 +941,7 @@ import sys
 from collections import Counter
 from datetime import datetime
 
-settings_path, workflows_path, issues_path, signals_path, output_path = sys.argv[1:]
+settings_path, workflows_path, issues_path, signals_path, representations_path, output_path = sys.argv[1:]
 signal_skip_ignore_regex = os.environ.get("TRYAGI_SIGNAL_SKIP_IGNORE_REGEX", "^(OpenAI)$")
 
 def read_tsv(path):
@@ -902,6 +952,7 @@ settings = read_tsv(settings_path)
 workflows = read_tsv(workflows_path)
 issues = read_tsv(issues_path)
 signals = read_tsv(signals_path)
+representations = read_tsv(representations_path)
 
 repo_count = len(settings)
 non_compliant = sum(
@@ -1020,6 +1071,20 @@ if signal_rows:
 else:
     lines.append("No warning or skipped test signals were detected in the latest completed publish logs.")
 
+representation_errors = [row for row in representations if row.get("severity") == "error"]
+representation_warnings = [row for row in representations if row.get("severity") == "warning"]
+representation_error_repos = Counter(
+    (row.get("source") or "").replace("\\", "/").split("/", 1)[0]
+    for row in representation_errors
+)
+lines.append(
+    f"The representation audit found {len(representations)} media-type signals, "
+    f"including {len(representation_errors)} errors and {len(representation_warnings)} warnings."
+)
+if representation_error_repos:
+    repo_bits = [f"{repo} with {count}" for repo, count in representation_error_repos.most_common(5)]
+    lines.append("The highest representation error counts are " + ", ".join(repo_bits) + ".")
+
 lines.append("End of briefing.")
 
 with open(output_path, "w", encoding="utf-8") as f:
@@ -1035,6 +1100,7 @@ write_summary_report() {
   local signals_path="${5:-}"
   local local_builds_path="${6:-}"
   local local_trims_path="${7:-}"
+  local representations_path="${8:-}"
   local output_path="$OUT_DIR/generated-sdk-summary.tsv"
 
   mkdir -p "$OUT_DIR"
@@ -1044,6 +1110,7 @@ write_summary_report() {
   signals_path="$(resolve_report_path "$signals_path" "generated-sdk-log-signals.tsv")"
   local_builds_path="$(resolve_report_path "$local_builds_path" "generated-sdk-local-builds.tsv")"
   local_trims_path="$(resolve_report_path "$local_trims_path" "generated-sdk-local-trims.tsv")"
+  representations_path="$(resolve_report_path "$representations_path" "generated-sdk-representations.tsv")"
 
   python3 - <<'PY' \
     "$mode_name" \
@@ -1055,6 +1122,7 @@ write_summary_report() {
     "$signals_path" \
     "$local_builds_path" \
     "$local_trims_path" \
+    "$representations_path" \
     "$output_path"
 import csv
 import os
@@ -1073,6 +1141,7 @@ from datetime import datetime, timezone
     signals_path,
     local_builds_path,
     local_trims_path,
+    representations_path,
     output_path,
 ) = sys.argv[1:]
 
@@ -1094,6 +1163,14 @@ def unique_repo_count(*rows_sets):
     return len(repos)
 
 
+def unique_representation_repo_count(rows):
+    return len({
+        (row.get("source") or "").replace("\\", "/").split("/", 1)[0]
+        for row in rows
+        if (row.get("source") or "").strip()
+    })
+
+
 def effective_signal_value(repo, raw_value):
     try:
         value = int(raw_value or 0)
@@ -1112,8 +1189,13 @@ issues = read_tsv(issues_path)
 signals = read_tsv(signals_path)
 local_builds = read_tsv(local_builds_path)
 local_trims = read_tsv(local_trims_path)
+representations = read_tsv(representations_path)
 
-repo_count = len(settings) or unique_repo_count(workflows, signals, local_builds, local_trims)
+repo_count = (
+    len(settings)
+    or unique_repo_count(workflows, signals, local_builds, local_trims)
+    or unique_representation_repo_count(representations)
+)
 settings_non_compliant = sum(
     1
     for row in settings
@@ -1199,6 +1281,10 @@ local_trim_successes = sum(1 for row in local_trims if row.get("status") == "suc
 local_trim_failures = sum(1 for row in local_trims if row.get("status") == "failed")
 local_trim_missing_projects = sum(1 for row in local_trims if row.get("status") == "missing-project")
 
+representation_findings = len(representations)
+representation_errors = sum(1 for row in representations if row.get("severity") == "error")
+representation_warnings = sum(1 for row in representations if row.get("severity") == "warning")
+
 fields = [
     "generated_at_utc",
     "mode",
@@ -1227,12 +1313,16 @@ fields = [
     "local_trim_successes",
     "local_trim_failures",
     "local_trim_missing_projects",
+    "representation_findings",
+    "representation_errors",
+    "representation_warnings",
     "settings_report",
     "workflows_report",
     "issues_report",
     "signals_report",
     "local_builds_report",
     "local_trims_report",
+    "representations_report",
 ]
 
 row = {
@@ -1263,12 +1353,16 @@ row = {
     "local_trim_successes": str(local_trim_successes),
     "local_trim_failures": str(local_trim_failures),
     "local_trim_missing_projects": str(local_trim_missing_projects),
+    "representation_findings": str(representation_findings),
+    "representation_errors": str(representation_errors),
+    "representation_warnings": str(representation_warnings),
     "settings_report": settings_path,
     "workflows_report": workflows_path,
     "issues_report": issues_path,
     "signals_report": signals_path,
     "local_builds_report": local_builds_path,
     "local_trims_report": local_trims_path,
+    "representations_report": representations_path,
 }
 
 with open(output_path, "w", encoding="utf-8", newline="") as f:
@@ -1414,6 +1508,7 @@ main() {
   local briefing_path
   local local_builds_path
   local local_trims_path
+  local representations_path
 
   require_command jq
   require_command python3
@@ -1424,12 +1519,14 @@ main() {
 
   if [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" ]]; then
     require_command dotnet
-    if [[ "$MODE" == "local-trims" ]]; then
-      require_command autosdk
-    fi
   else
-    require_command gh
-    require_github_auth
+    if [[ "$MODE" != "representations" ]]; then
+      require_command gh
+      require_github_auth
+    fi
+  fi
+  if [[ "$MODE" == "local-trims" || "$MODE" == "representations" || "$MODE" == "briefing" ]]; then
+    require_command autosdk
   fi
 
   case "$MODE" in
@@ -1456,6 +1553,11 @@ main() {
       write_summary_report "$MODE" "" "" "" "$signals_path" >/dev/null
       printf '%s\n' "$signals_path"
       ;;
+    representations)
+      representations_path="$(write_representations_report)"
+      write_summary_report "$MODE" "" "" "" "" "" "" "$representations_path" >/dev/null
+      print_representation_summary "$representations_path"
+      ;;
     local-builds)
       local_builds_path="$(write_local_builds_report)"
       write_summary_report "$MODE" "" "" "" "" "$local_builds_path" >/dev/null
@@ -1476,9 +1578,11 @@ main() {
       workflows_path="$(write_workflows_report)"
       issues_path="$(write_issues_report)"
       signals_path="$(write_signals_report)"
+      representations_path="$(write_representations_report)"
       briefing_path="$OUT_DIR/daily-briefing.txt"
-      render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$briefing_path"
+      render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$briefing_path"
       print_summary "$MODE" "$settings_path" "$workflows_path" "$issues_path" "$signals_path"
+      print_representation_summary "$representations_path"
       printf 'Briefing text: %s\n' "$briefing_path"
       ;;
   esac

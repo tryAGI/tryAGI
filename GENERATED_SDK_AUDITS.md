@@ -22,8 +22,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 - Optional local validation for generated SDKs:
   - `dotnet build -c Release`
   - `autosdk trim` for NativeAOT/trimming compatibility
+- OpenAPI request/response representation risks using AutoSDK's shared media-type capability matrix
 - A machine-readable summary rollup in `generated-sdk-summary.tsv`
-- A daily text briefing
+- A daily text briefing, including representation error/warning totals and the repositories with the most errors
 
 ## Commands
 
@@ -42,6 +43,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 
 # Warning / skipped-test signals from the latest completed Publish runs
 ./scripts/audit-generated-sdks.sh signals
+
+# OpenAPI request/response representation risks
+./scripts/audit-generated-sdks.sh representations
 
 # Local Release builds across generated SDK repos
 ./scripts/audit-generated-sdks.sh local-builds
@@ -86,6 +90,10 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-local-trims.tsv`
   - One row per detected generated SDK project
   - Includes project path, status, exit code, duration, and the local trim log path
+- `generated-sdk-representations.tsv`
+  - One row per request/response media-type risk in generated SDK OpenAPI documents
+  - Includes operation, direction, selected and declared media types, severity, and a stable finding code
+  - Respects `--repo` by filtering the workspace-wide AutoSDK scan to the selected generated SDK repositories
 - `generated-sdk-summary.tsv`
   - One summary row that rolls up the latest counts currently available in the output directory
   - Refreshes on every mode, so separate `settings`, `workflows`, `issues`, `signals`, `local-builds`, and `local-trims` runs converge into one machine-readable status snapshot
@@ -156,13 +164,16 @@ Add new keys there when the audit grows. The script treats the config as the def
   - The SDK does not build locally in Release configuration; inspect the referenced log under `/tmp/tryagi-sdk-audit/local-build-logs/`
 - `local-trims` failure
   - The SDK is not currently NativeAOT/trimming compatible under `autosdk trim`; inspect the referenced log under `/tmp/tryagi-sdk-audit/local-trim-logs/`
+- Non-zero representation errors
+  - The specification contains a typed media representation AutoSDK cannot faithfully encode, or another media/schema binding problem; inspect `generated-sdk-representations.tsv`
 
 ## Follow-up workflow
 
 1. Run `./scripts/audit-generated-sdks.sh summary`.
 2. Run `./scripts/audit-generated-sdks.sh briefing` when you want the full daily text pass.
 3. Run `./scripts/audit-generated-sdks.sh local-trims` when checking NativeAOT/trimming health.
-4. Open the failing repo locally.
-5. Fix the repo or org setting.
-6. Commit and push on `main`.
-7. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
+4. Run `./scripts/audit-generated-sdks.sh representations` after generator or OpenAPI media-type changes.
+5. Open the failing repo locally.
+6. Fix the repo, generator, or org setting.
+7. Commit and push on `main`.
+8. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
