@@ -14,14 +14,16 @@ SIGNAL_RUN_LIMIT="${TRYAGI_SIGNAL_RUN_LIMIT:-5}"
 SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-^(OpenAI)$}"
 GH_API_RETRIES="${TRYAGI_GH_API_RETRIES:-3}"
 GH_API_RETRY_DELAY_SECONDS="${TRYAGI_GH_API_RETRY_DELAY_SECONDS:-2}"
+SYNC_MAX_AGE_SECONDS="${TRYAGI_SYNC_MAX_AGE_SECONDS:-21600}"
 MODE="summary"
 REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
+  sync       Fetch origin/main, safely fast-forward clean main checkouts, and write generated-sdk-sync.tsv.
   summary    Write settings + workflow TSV reports and print a short summary.
   settings   Write generated-sdk-settings.tsv with auto-merge related repo settings.
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
@@ -48,6 +50,7 @@ Environment:
   TRYAGI_SIGNAL_SKIP_IGNORE_REGEX   Regex for repos whose skipped/inconclusive test counts should be ignored in summaries. Default: ^(OpenAI)$
   TRYAGI_GH_API_RETRIES             How many times to retry transient GitHub API calls. Default: 3
   TRYAGI_GH_API_RETRY_DELAY_SECONDS Delay between GitHub API retry attempts. Default: 2
+  TRYAGI_SYNC_MAX_AGE_SECONDS       Maximum accepted age for a sync snapshot. Default: 21600 (6 hours)
 EOF
 }
 
@@ -105,6 +108,7 @@ apply_env_overrides() {
   SIGNAL_SKIP_IGNORE_REGEX="${TRYAGI_SIGNAL_SKIP_IGNORE_REGEX:-$SIGNAL_SKIP_IGNORE_REGEX}"
   GH_API_RETRIES="${TRYAGI_GH_API_RETRIES:-$GH_API_RETRIES}"
   GH_API_RETRY_DELAY_SECONDS="${TRYAGI_GH_API_RETRY_DELAY_SECONDS:-$GH_API_RETRY_DELAY_SECONDS}"
+  SYNC_MAX_AGE_SECONDS="${TRYAGI_SYNC_MAX_AGE_SECONDS:-$SYNC_MAX_AGE_SECONDS}"
 }
 
 gh_api_with_retries() {
@@ -148,7 +152,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims)
+      sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims)
         MODE="$1"
         shift
         ;;
@@ -223,6 +227,231 @@ for pattern in patterns:
 
 print(f"{org}/{repo}")
 PY
+}
+
+write_sync_report() {
+  local output_path="$OUT_DIR/generated-sdk-sync.tsv"
+  local log_dir="$OUT_DIR/sync-logs"
+  local local_targets_path="$OUT_DIR/.generated-sdk-local-api-targets.txt"
+  local remote_candidates_path="$OUT_DIR/.generated-sdk-remote-autosdk-repos.tsv"
+  local repo
+  local repo_dir
+  local api_target
+  local canonical_target
+  local branch
+  local dirty
+  local head_before
+  local origin_main
+  local head_after
+  local ahead
+  local behind
+  local status
+  local action
+  local details
+  local fetched_at
+  local log_path
+  local remote_name
+  local remote_target
+  local default_branch
+  local tree_json
+
+  mkdir -p "$OUT_DIR" "$log_dir"
+  : > "$local_targets_path"
+  printf 'repo\tapi_target\tlocal_path\tstatus\taction\tbranch\tdirty\thead_before\torigin_main\thead_after\tahead\tbehind\tfetched_at\tdetails\n' > "$output_path"
+
+  while IFS= read -r repo; do
+    repo_dir="$ROOT_DIR/$repo"
+    api_target="$(repo_api_target "$repo")"
+    canonical_target="$(gh_api_with_retries "repos/$api_target" --jq '.full_name // empty' || true)"
+    if [[ -n "$canonical_target" ]]; then
+      api_target="$canonical_target"
+    fi
+    printf '%s\n' "$api_target" >> "$local_targets_path"
+    log_path="$log_dir/$repo.log"
+    branch="$(git -C "$repo_dir" symbolic-ref --short -q HEAD 2>/dev/null || printf 'detached')"
+    dirty="false"
+    if [[ -n "$(git -C "$repo_dir" status --porcelain 2>/dev/null)" ]]; then
+      dirty="true"
+    fi
+    head_before="$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || true)"
+    origin_main=""
+    head_after="$head_before"
+    ahead=""
+    behind=""
+    status="fetch-failed"
+    action="none"
+    details=""
+
+    if git -C "$repo_dir" fetch --prune origin main > "$log_path" 2>&1; then
+      action="fetched"
+      origin_main="$(git -C "$repo_dir" rev-parse --verify refs/remotes/origin/main 2>/dev/null || true)"
+      if [[ -z "$origin_main" ]]; then
+        status="missing-origin-main"
+        details="fetch completed but refs/remotes/origin/main is missing"
+      else
+        read -r ahead behind <<< "$(git -C "$repo_dir" rev-list --left-right --count HEAD...refs/remotes/origin/main)"
+        if [[ "$dirty" == "true" ]]; then
+          status="dirty"
+          details="working tree has local changes; no fast-forward attempted"
+        elif [[ "$branch" != "main" ]]; then
+          status="wrong-branch"
+          details="checkout is not on main; no fast-forward attempted"
+        elif [[ "$ahead" != "0" && "$behind" != "0" ]]; then
+          status="diverged"
+          details="main and origin/main have diverged; no history rewrite attempted"
+        elif [[ "$ahead" != "0" ]]; then
+          status="ahead"
+          details="local main contains commits not present on origin/main"
+        elif [[ "$behind" != "0" ]]; then
+          if git -C "$repo_dir" merge --ff-only refs/remotes/origin/main >> "$log_path" 2>&1; then
+            status="fast-forwarded"
+            action="fast-forwarded"
+            head_after="$(git -C "$repo_dir" rev-parse HEAD)"
+            ahead="0"
+            behind="0"
+          else
+            status="fast-forward-failed"
+            details="clean main could not be fast-forwarded; inspect the sync log"
+          fi
+        else
+          status="current"
+        fi
+      fi
+    else
+      details="git fetch --prune origin main failed; inspect the sync log"
+    fi
+
+    head_after="$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || true)"
+    fetched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$api_target" "$repo" "$status" "$action" "$branch" "$dirty" \
+      "$head_before" "$origin_main" "$head_after" "$ahead" "$behind" "$fetched_at" "$details" >> "$output_path"
+  done < <(list_generated_sdk_repos)
+
+  sort -u -o "$local_targets_path" "$local_targets_path"
+  if gh api --paginate "orgs/$ORG/repos?per_page=100&type=all" \
+      --jq '.[] | select((.archived | not) and (.topics | index("autosdk"))) | [.name, .full_name, .default_branch] | @tsv' \
+      > "$remote_candidates_path" 2> "$log_dir/remote-inventory.log"; then
+    while IFS=$'\t' read -r remote_name remote_target default_branch; do
+      if [[ -n "$REPO_FILTER" ]] && ! [[ "$remote_name" =~ $REPO_FILTER ]]; then
+        continue
+      fi
+      if grep -Fqx "$remote_target" "$local_targets_path"; then
+        continue
+      fi
+
+      if ! tree_json="$(gh_api_with_retries "repos/$remote_target/git/trees/$default_branch?recursive=1")"; then
+        printf '%s\t%s\t\tremote-inventory-error\tnone\t\t\t\t\t\t\t\t%s\t%s\n' \
+          "$remote_name" "$remote_target" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          "could not inspect remote repository tree" >> "$output_path"
+        continue
+      fi
+
+      if jq -e 'any(.tree[]?; (.path // "") | test("^src/libs/[^/]+/generate\\.sh$"))' \
+          <<< "$tree_json" >/dev/null; then
+        printf '%s\t%s\t\tmissing-local\tnone\t%s\t\t\t\t\t\t\t%s\t%s\n' \
+          "$remote_name" "$remote_target" "$default_branch" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          "remote AutoSDK repository contains generate.sh but has no local checkout" >> "$output_path"
+      fi
+    done < "$remote_candidates_path"
+  else
+    printf '%s\t%s\t\tremote-inventory-failed\tnone\t\t\t\t\t\t\t\t%s\t%s\n' \
+      "__inventory__" "$ORG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "failed to list organization AutoSDK repositories" >> "$output_path"
+  fi
+
+  printf '%s\n' "$output_path"
+}
+
+sync_report_has_failures() {
+  local sync_path="$1"
+
+  awk -F '\t' '
+    NR > 1 && $4 != "current" && $4 != "fast-forwarded" { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$sync_path"
+}
+
+print_sync_summary() {
+  local sync_path="$1"
+
+  printf 'Repository sync report: %s\n' "$sync_path"
+  printf 'Current repositories: %s\n' "$({ awk -F '\t' 'NR > 1 && $4 == "current" { count++ } END { print count + 0 }' "$sync_path"; })"
+  printf 'Fast-forwarded repositories: %s\n' "$({ awk -F '\t' 'NR > 1 && $4 == "fast-forwarded" { count++ } END { print count + 0 }' "$sync_path"; })"
+  printf 'Unsynchronized repositories: %s\n' "$({ awk -F '\t' 'NR > 1 && $4 != "current" && $4 != "fast-forwarded" { count++ } END { print count + 0 }' "$sync_path"; })"
+
+  if sync_report_has_failures "$sync_path"; then
+    echo
+    echo "Repositories requiring attention:"
+    awk -F '\t' '
+      NR > 1 && $4 != "current" && $4 != "fast-forwarded" {
+        printf "  %s\t%s\t%s\n", $1, $4, $14
+      }
+    ' "$sync_path"
+  fi
+}
+
+require_ready_sync_report() {
+  local sync_path="$OUT_DIR/generated-sdk-sync.tsv"
+  local repo
+  local row
+  local status
+  local recorded_head
+  local current_head
+
+  if [[ ! -f "$sync_path" ]]; then
+    echo "Missing repository sync report: $sync_path" >&2
+    echo "Run './scripts/audit-generated-sdks.sh sync' before audit checks." >&2
+    exit 1
+  fi
+
+  if ! python3 - <<'PY' "$sync_path" "$SYNC_MAX_AGE_SECONDS"
+import os
+import sys
+import time
+
+path, max_age = sys.argv[1:]
+age = time.time() - os.path.getmtime(path)
+raise SystemExit(0 if age <= int(max_age) else 1)
+PY
+  then
+    echo "Repository sync report is older than $SYNC_MAX_AGE_SECONDS seconds: $sync_path" >&2
+    echo "Run './scripts/audit-generated-sdks.sh sync' again." >&2
+    exit 1
+  fi
+
+  if sync_report_has_failures "$sync_path"; then
+    echo "Repository sync report contains unsafe or missing checkouts: $sync_path" >&2
+    print_sync_summary "$sync_path" >&2
+    exit 1
+  fi
+
+  while IFS= read -r repo; do
+    row="$(awk -F '\t' -v repo="$repo" 'NR > 1 && $1 == repo { print; exit }' "$sync_path")"
+    if [[ -z "$row" ]]; then
+      echo "Repository $repo is absent from the current sync snapshot." >&2
+      exit 1
+    fi
+    status="$(cut -f4 <<< "$row")"
+    recorded_head="$(cut -f10 <<< "$row")"
+    current_head="$(git -C "$ROOT_DIR/$repo" rev-parse HEAD 2>/dev/null || true)"
+    if [[ "$status" != "current" && "$status" != "fast-forwarded" ]]; then
+      echo "Repository $repo is not synchronized: $status" >&2
+      exit 1
+    fi
+    if [[ "$recorded_head" != "$current_head" ]]; then
+      echo "Repository $repo changed after the sync snapshot." >&2
+      exit 1
+    fi
+    if [[ "$(git -C "$ROOT_DIR/$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)" != "main" ]]; then
+      echo "Repository $repo is no longer on main." >&2
+      exit 1
+    fi
+    if [[ -n "$(git -C "$ROOT_DIR/$repo" status --porcelain 2>/dev/null)" ]]; then
+      echo "Repository $repo became dirty after the sync snapshot." >&2
+      exit 1
+    fi
+  done < <(list_generated_sdk_repos)
 }
 
 latest_run_json() {
@@ -1102,6 +1331,7 @@ write_summary_report() {
   local local_trims_path="${7:-}"
   local representations_path="${8:-}"
   local output_path="$OUT_DIR/generated-sdk-summary.tsv"
+  local sync_path="$OUT_DIR/generated-sdk-sync.tsv"
 
   mkdir -p "$OUT_DIR"
   settings_path="$(resolve_report_path "$settings_path" "generated-sdk-settings.tsv")"
@@ -1123,6 +1353,7 @@ write_summary_report() {
     "$local_builds_path" \
     "$local_trims_path" \
     "$representations_path" \
+    "$sync_path" \
     "$output_path"
 import csv
 import os
@@ -1142,6 +1373,7 @@ from datetime import datetime, timezone
     local_builds_path,
     local_trims_path,
     representations_path,
+    sync_path,
     output_path,
 ) = sys.argv[1:]
 
@@ -1171,6 +1403,10 @@ def unique_representation_repo_count(rows):
     })
 
 
+def sync_repo_count(rows):
+    return sum(1 for row in rows if row.get("repo") not in {"", "__inventory__"})
+
+
 def effective_signal_value(repo, raw_value):
     try:
         value = int(raw_value or 0)
@@ -1190,11 +1426,13 @@ signals = read_tsv(signals_path)
 local_builds = read_tsv(local_builds_path)
 local_trims = read_tsv(local_trims_path)
 representations = read_tsv(representations_path)
+sync_rows = read_tsv(sync_path)
 
 repo_count = (
     len(settings)
     or unique_repo_count(workflows, signals, local_builds, local_trims)
     or unique_representation_repo_count(representations)
+    or sync_repo_count(sync_rows)
 )
 settings_non_compliant = sum(
     1
@@ -1284,6 +1522,12 @@ local_trim_missing_projects = sum(1 for row in local_trims if row.get("status") 
 representation_findings = len(representations)
 representation_errors = sum(1 for row in representations if row.get("severity") == "error")
 representation_warnings = sum(1 for row in representations if row.get("severity") == "warning")
+sync_current = sum(1 for row in sync_rows if row.get("status") == "current")
+sync_fast_forwarded = sum(1 for row in sync_rows if row.get("status") == "fast-forwarded")
+sync_unsynchronized = sum(
+    1 for row in sync_rows if row.get("status") not in {"current", "fast-forwarded", ""}
+)
+sync_missing_local = sum(1 for row in sync_rows if row.get("status") == "missing-local")
 
 fields = [
     "generated_at_utc",
@@ -1316,6 +1560,10 @@ fields = [
     "representation_findings",
     "representation_errors",
     "representation_warnings",
+    "sync_current",
+    "sync_fast_forwarded",
+    "sync_unsynchronized",
+    "sync_missing_local",
     "settings_report",
     "workflows_report",
     "issues_report",
@@ -1323,6 +1571,7 @@ fields = [
     "local_builds_report",
     "local_trims_report",
     "representations_report",
+    "sync_report",
 ]
 
 row = {
@@ -1356,6 +1605,10 @@ row = {
     "representation_findings": str(representation_findings),
     "representation_errors": str(representation_errors),
     "representation_warnings": str(representation_warnings),
+    "sync_current": str(sync_current),
+    "sync_fast_forwarded": str(sync_fast_forwarded),
+    "sync_unsynchronized": str(sync_unsynchronized),
+    "sync_missing_local": str(sync_missing_local),
     "settings_report": settings_path,
     "workflows_report": workflows_path,
     "issues_report": issues_path,
@@ -1363,6 +1616,7 @@ row = {
     "local_builds_report": local_builds_path,
     "local_trims_report": local_trims_path,
     "representations_report": representations_path,
+    "sync_report": sync_path,
 }
 
 with open(output_path, "w", encoding="utf-8", newline="") as f:
@@ -1501,6 +1755,7 @@ print_summary() {
 }
 
 main() {
+  local sync_path
   local settings_path
   local workflows_path
   local issues_path
@@ -1512,12 +1767,16 @@ main() {
 
   require_command jq
   require_command python3
+  require_command git
   parse_args "$@"
   load_automation_env
   apply_env_overrides
   load_config
 
-  if [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" ]]; then
+  if [[ "$MODE" == "sync" ]]; then
+    require_command gh
+    require_github_auth
+  elif [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" ]]; then
     require_command dotnet
   else
     if [[ "$MODE" != "representations" ]]; then
@@ -1529,7 +1788,19 @@ main() {
     require_command autosdk
   fi
 
+  if [[ "$MODE" != "sync" && "$MODE" != "repos" ]]; then
+    require_ready_sync_report
+  fi
+
   case "$MODE" in
+    sync)
+      sync_path="$(write_sync_report)"
+      write_summary_report "$MODE" >/dev/null
+      print_sync_summary "$sync_path"
+      if sync_report_has_failures "$sync_path"; then
+        exit 2
+      fi
+      ;;
     repos)
       list_generated_sdk_repos
       ;;

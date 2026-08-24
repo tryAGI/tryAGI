@@ -7,6 +7,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 ## What it checks
 
 - Generated SDK repo detection by scanning local repos for `src/libs/*/generate.sh`
+- A repository synchronization preflight that fetches/prunes `origin/main`, safely fast-forwards clean `main` checkouts, and detects missing remote AutoSDK repositories
 - GitHub repo settings required for bot PR auto-merge:
   - `allow_auto_merge`
   - `delete_branch_on_merge`
@@ -29,6 +30,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 ## Commands
 
 ```bash
+# Synchronize repositories before every audit pass
+./scripts/audit-generated-sdks.sh sync
+
 # Full summary plus TSV outputs in /tmp/tryagi-sdk-audit
 ./scripts/audit-generated-sdks.sh summary
 
@@ -68,6 +72,11 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 
 ## Outputs
 
+- `generated-sdk-sync.tsv`
+  - One row per detected generated SDK checkout, plus missing remote AutoSDK repositories
+  - Records the GitHub API target, branch, dirty state, HEAD before and after synchronization, fetched `origin/main`, ahead/behind counts, action, timestamp, and status
+  - Fetches with pruning and only fast-forwards clean `main` checkouts; it never stashes, overwrites, rewrites, or switches local work
+  - Treats dirty, ahead, diverged, wrong-branch, fetch-failed, missing-local, and inventory-error rows as blocking findings
 - `generated-sdk-settings.tsv`
   - One row per detected generated SDK repo
   - `true/false` flags for the three auto-merge related settings
@@ -120,6 +129,8 @@ Environment knobs:
 - `TRYAGI_SIGNAL_SKIP_IGNORE_REGEX`
   - Regex for repos whose skipped/inconclusive test counts should be ignored in summaries and briefings
   - Raw counts remain in `generated-sdk-log-signals.tsv`
+- `TRYAGI_SYNC_MAX_AGE_SECONDS`
+  - Maximum accepted age of `generated-sdk-sync.tsv` before every non-`sync` audit mode refuses to run. Default: `21600` (6 hours)
 
 ## Config File
 
@@ -169,11 +180,13 @@ Add new keys there when the audit grows. The script treats the config as the def
 
 ## Follow-up workflow
 
-1. Run `./scripts/audit-generated-sdks.sh summary`.
-2. Run `./scripts/audit-generated-sdks.sh briefing` when you want the full daily text pass.
-3. Run `./scripts/audit-generated-sdks.sh local-trims` when checking NativeAOT/trimming health.
-4. Run `./scripts/audit-generated-sdks.sh representations` after generator or OpenAPI media-type changes.
-5. Open the failing repo locally.
-6. Fix the repo, generator, or org setting.
-7. Commit and push on `main`.
-8. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
+1. Run `./scripts/audit-generated-sdks.sh sync` and resolve every blocking synchronization row. Clone a missing remote SDK; commit/push intentional local work; otherwise return the checkout to clean `main` without discarding changes.
+2. Run `./scripts/audit-generated-sdks.sh summary`.
+3. Run `./scripts/audit-generated-sdks.sh briefing` when you want the full daily text pass.
+4. Run `./scripts/audit-generated-sdks.sh local-trims` when checking NativeAOT/trimming health.
+5. Run `./scripts/audit-generated-sdks.sh representations` after generator or OpenAPI media-type changes.
+6. Open the failing repo locally.
+7. Fix the repo, generator, or org setting.
+8. Commit and push on `main`.
+9. Rerun `sync` after any repository change, then rerun the affected audit modes.
+10. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
