@@ -230,6 +230,28 @@ for line in sys.stdin:
 '
 }
 
+workspace_publication_exception_reason() {
+  local repo="$1"
+  local exception_kind="$2"
+  local config_key
+
+  case "$exception_kind" in
+    ahead)
+      config_key="allowed_ahead_repositories"
+      ;;
+    no-upstream)
+      config_key="allowed_no_upstream_repositories"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  jq -r --arg repo "$repo" --arg config_key "$config_key" '
+    .workspace[$config_key][]? | select(.repo == $repo) | .reason
+  ' "$CONFIG_PATH" | sed -n '1p'
+}
+
 repo_api_target() {
   local repo="$1"
   local remote_url
@@ -402,11 +424,17 @@ write_workspace_hygiene_report() {
   local dirty_count
   local staged_count
   local tracked_env_files
+  local upstream
+  local ahead
+  local behind
+  local publication_status
+  local publication_details
+  local exception_reason
   local status
   local details
 
   mkdir -p "$OUT_DIR"
-  printf 'repo\tbranch\tdirty_paths\tstaged_paths\ttracked_environment_files\tstatus\tdetails\n' > "$output_path"
+  printf 'repo\tbranch\tdirty_paths\tstaged_paths\ttracked_environment_files\tstatus\tdetails\tupstream\tahead\tbehind\tpublication_status\tpublication_details\n' > "$output_path"
 
   while IFS= read -r repo; do
     repo_dir="$ROOT_DIR"
@@ -418,6 +446,42 @@ write_workspace_hygiene_report() {
     dirty_count="$(git -C "$repo_dir" status --porcelain | awk 'END { print NR + 0 }')"
     staged_count="$(git -C "$repo_dir" diff --cached --name-only | awk 'END { print NR + 0 }')"
     tracked_env_files="$(tracked_environment_files "$repo" | paste -sd ',' -)"
+    upstream="$(git -C "$repo_dir" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+    ahead=""
+    behind=""
+    publication_status="published"
+    publication_details=""
+    exception_reason=""
+
+    if [[ -z "$upstream" ]]; then
+      exception_reason="$(workspace_publication_exception_reason "$repo" "no-upstream")"
+      if [[ -n "$exception_reason" ]]; then
+        publication_status="allowed-no-upstream"
+        publication_details="$exception_reason"
+      else
+        publication_status="no-upstream"
+        publication_details="repository has no configured upstream branch"
+      fi
+    else
+      read -r ahead behind <<< "$(git -C "$repo_dir" rev-list --left-right --count HEAD..."$upstream")"
+      if [[ "$ahead" != "0" && "$behind" != "0" ]]; then
+        publication_status="diverged"
+        publication_details="local branch and upstream have diverged"
+      elif [[ "$ahead" != "0" ]]; then
+        exception_reason="$(workspace_publication_exception_reason "$repo" "ahead")"
+        if [[ -n "$exception_reason" ]]; then
+          publication_status="allowed-ahead"
+          publication_details="$exception_reason"
+        else
+          publication_status="unpublished-commits"
+          publication_details="local branch contains commits absent from upstream"
+        fi
+      elif [[ "$behind" != "0" ]]; then
+        publication_status="behind-upstream"
+        publication_details="local branch is behind its upstream tracking branch"
+      fi
+    fi
+
     status="clean"
     details=""
 
@@ -430,10 +494,17 @@ write_workspace_hygiene_report() {
     elif [[ "$branch" == "detached" ]]; then
       status="detached"
       details="repository is not on a named branch"
+    elif [[ "$publication_status" == "no-upstream" ||
+            "$publication_status" == "unpublished-commits" ||
+            "$publication_status" == "behind-upstream" ||
+            "$publication_status" == "diverged" ]]; then
+      status="$publication_status"
+      details="$publication_details"
     fi
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$repo" "$branch" "$dirty_count" "$staged_count" "$tracked_env_files" "$status" "$details" >> "$output_path"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$branch" "$dirty_count" "$staged_count" "$tracked_env_files" "$status" "$details" \
+      "$upstream" "$ahead" "$behind" "$publication_status" "$publication_details" >> "$output_path"
   done < <(list_workspace_repos)
 
   printf '%s\n' "$output_path"
@@ -451,10 +522,13 @@ print_workspace_hygiene_summary() {
   printf 'Workspace hygiene report: %s\n' "$hygiene_path"
   printf 'Clean repositories: %s\n' "$(awk -F '\t' 'NR > 1 && $6 == "clean" { count++ } END { print count + 0 }' "$hygiene_path")"
   printf 'Repositories requiring attention: %s\n' "$(awk -F '\t' 'NR > 1 && $6 != "clean" { count++ } END { print count + 0 }' "$hygiene_path")"
+  printf 'Allowed publication exceptions: %s\n' "$(awk -F '\t' 'NR > 1 && $11 ~ /^allowed-/ { count++ } END { print count + 0 }' "$hygiene_path")"
 
   if workspace_hygiene_has_failures "$hygiene_path"; then
     awk -F '\t' 'NR > 1 && $6 != "clean" { printf "  %s\t%s\t%s\n", $1, $6, $7 }' "$hygiene_path"
   fi
+
+  awk -F '\t' 'NR > 1 && $11 ~ /^allowed-/ { printf "  %s\t%s\t%s\n", $1, $11, $12 }' "$hygiene_path"
 }
 
 sync_report_has_failures() {
@@ -522,7 +596,8 @@ PY
     exit 1
   fi
 
-  if [[ ! -f "$hygiene_path" ]] || workspace_hygiene_has_failures "$hygiene_path"; then
+  write_workspace_hygiene_report >/dev/null
+  if workspace_hygiene_has_failures "$hygiene_path"; then
     echo "Workspace repository hygiene is missing or contains blockers: $hygiene_path" >&2
     [[ ! -f "$hygiene_path" ]] || print_workspace_hygiene_summary "$hygiene_path" >&2
     exit 1
@@ -1182,12 +1257,12 @@ write_local_trims_report() {
 }
 
 list_local_smoke_targets() {
-  jq -r '.smoke.local_container_repositories[]? | [.repo, .environment_name, (.environment_value // "Container")] | @tsv' \
-    "$CONFIG_PATH" | while IFS=$'\t' read -r repo environment_name environment_value; do
+  jq -r '.smoke.local_container_repositories[]? | [.repo, (.environment_name // "-"), (.environment_value // "-"), (.test_filter // "-")] | @tsv' \
+    "$CONFIG_PATH" | while IFS=$'\t' read -r repo environment_name environment_value test_filter; do
       if [[ -n "$REPO_FILTER" ]] && ! [[ "$repo" =~ $REPO_FILTER ]]; then
         continue
       fi
-      printf '%s\t%s\t%s\n' "$repo" "$environment_name" "$environment_value"
+      printf '%s\t%s\t%s\t%s\n' "$repo" "$environment_name" "$environment_value" "$test_filter"
     done
 }
 
@@ -1197,6 +1272,8 @@ write_local_smoke_report() {
   local repo
   local environment_name
   local environment_value
+  local environment_display
+  local test_filter
   local project_path
   local relative_project_path
   local log_path
@@ -1205,15 +1282,20 @@ write_local_smoke_report() {
   local duration_seconds
   local exit_code
   local status
+  local -a test_args
 
   mkdir -p "$OUT_DIR" "$log_dir"
-  printf 'repo\tproject\tenvironment\tstatus\texit_code\tduration_seconds\tlog_path\tdetails\n' > "$output_path"
+  printf 'repo\tproject\tenvironment\tstatus\texit_code\tduration_seconds\tlog_path\tdetails\ttest_filter\n' > "$output_path"
 
-  while IFS=$'\t' read -r repo environment_name environment_value; do
+  while IFS=$'\t' read -r repo environment_name environment_value test_filter; do
+    environment_display="Release-default-container"
+    if [[ "$environment_name" != "-" ]]; then
+      environment_display="$environment_name=$environment_value"
+    fi
     project_path="$(find "$ROOT_DIR/$repo/src/tests" -type f -name '*.csproj' -print 2>/dev/null | sort | sed -n '1p')"
     if [[ -z "$project_path" ]]; then
-      printf '%s\t\t%s=%s\tmissing-project\t\t\t\tconfigured smoke test project is missing\n' \
-        "$repo" "$environment_name" "$environment_value" >> "$output_path"
+      printf '%s\t\t%s\tmissing-project\t\t\t\tconfigured smoke test project is missing\t%s\n' \
+        "$repo" "$environment_display" "$test_filter" >> "$output_path"
       continue
     fi
 
@@ -1222,8 +1304,15 @@ write_local_smoke_report() {
     started_at="$(date +%s)"
 
     set +e
-    env "$environment_name=$environment_value" \
-      dotnet test "$project_path" -c Release --nologo > "$log_path" 2>&1
+    test_args=(dotnet test "$project_path" -c Release --nologo)
+    if [[ "$test_filter" != "-" ]]; then
+      test_args+=(--filter "$test_filter")
+    fi
+    if [[ "$environment_name" == "-" ]]; then
+      "${test_args[@]}" > "$log_path" 2>&1
+    else
+      env "$environment_name=$environment_value" "${test_args[@]}" > "$log_path" 2>&1
+    fi
     exit_code="$?"
     set -e
 
@@ -1234,10 +1323,10 @@ write_local_smoke_report() {
       status="failed"
     fi
 
-    printf '%s\t%s\t%s=%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$repo" "$relative_project_path" "$environment_name" "$environment_value" \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$relative_project_path" "$environment_display" \
       "$status" "$exit_code" "$duration_seconds" "$log_path" \
-      "allowlisted local container; no provider credentials or paid endpoints" >> "$output_path"
+      "allowlisted local container; no provider credentials or paid endpoints" "$test_filter" >> "$output_path"
   done < <(list_local_smoke_targets)
 
   printf '%s\n' "$output_path"

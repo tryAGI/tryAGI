@@ -83,7 +83,8 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Treats dirty, ahead, diverged, wrong-branch, fetch-failed, missing-local, and inventory-error rows as blocking findings
 - `workspace-repository-hygiene.tsv`
   - Covers every Git repository directly inside the workspace, plus the workspace repository itself
-  - Blocks staged, modified, or untracked paths, detached HEADs, and tracked secret-bearing `.env` filenames
+  - Blocks staged, modified, or untracked paths, detached HEADs, tracked secret-bearing `.env` filenames, unpublished commits, missing upstreams, divergence, and branches behind their tracking refs
+  - Records upstream, ahead/behind counts, and publication state; intentional exceptions require a reason in the tracked workspace policy
   - Allows templates named `.env.example`, `.env.sample`, or `.env.template`
 - `generated-sdk-settings.tsv`
   - One row per detected generated SDK repo
@@ -111,6 +112,7 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Runs only repositories allowlisted under `smoke.local_container_repositories`
   - Forces local Testcontainers environments and never targets a paid provider endpoint
   - Includes project, forced environment, status, exit code, duration, and log path
+  - Supports Release-default container tests for SDKs whose test harness selects Testcontainers without an environment switch
 - `generated-sdk-representations.tsv`
   - One row per request/response media-type risk in generated SDK OpenAPI documents
   - Includes operation, direction, selected and declared media types, severity, and a stable finding code
@@ -154,6 +156,8 @@ The tracked config file currently controls:
 - `workflows.new_repo_days`
 - `signals.run_limit`
 - `signals.ignored_skip_signal_repos`
+- `workspace.allowed_ahead_repositories`
+- `workspace.allowed_no_upstream_repositories`
 - `smoke.local_container_repositories`
 
 Add new keys there when the audit grows. The script treats the config as the default policy layer, and environment variables or `--config` are the escape hatches for temporary overrides.

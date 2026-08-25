@@ -158,7 +158,7 @@ Use `Anthropic/src/libs/Anthropic/Extensions/AnthropicClient.ChatClient.cs` as t
 
 Use `./scripts/audit-generated-sdks.sh` from the workspace root when you need an org-wide snapshot of generated SDK health.
 
-- Run `./scripts/audit-generated-sdks.sh sync` first. It fetches/prunes `origin/main`, fast-forwards only clean `main` checkouts, records SHA/branch/dirty/ahead/behind evidence, detects missing remote AutoSDK repositories, and blocks downstream modes when any checkout is unsafe or stale. It also requires every Git repository in the workspace to be clean and forbids tracked real `.env` files while allowing explicit templates such as `.env.example`.
+- Run `./scripts/audit-generated-sdks.sh sync` first. It fetches/prunes `origin/main`, fast-forwards only clean `main` checkouts, records SHA/branch/dirty/ahead/behind evidence, detects missing remote AutoSDK repositories, and blocks downstream modes when any checkout is unsafe or stale. It also requires every Git repository in the workspace to be clean, detects unpublished/no-upstream/diverged/behind work across the workspace, and forbids tracked real `.env` files while allowing explicit templates such as `.env.example`. Intentional publication exceptions require a reason in `config/generated-sdk-audit.json`.
 - `./scripts/audit-generated-sdks.sh summary` audits repo merge settings plus the latest `auto-update.yml` and `dotnet.yml` runs, then writes TSV reports to `/tmp/tryagi-sdk-audit/`
 - `./scripts/audit-generated-sdks.sh settings` only checks `allow_auto_merge`, `delete_branch_on_merge`, and `allow_update_branch`
 - `./scripts/audit-generated-sdks.sh workflows` only checks the latest regeneration and publish runs

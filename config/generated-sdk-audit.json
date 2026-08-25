@@ -11,6 +11,20 @@
       "OpenAI"
     ]
   },
+  "workspace": {
+    "allowed_ahead_repositories": [
+      {
+        "repo": "LangChainChat",
+        "reason": "upstream repository is read-only for the current GitHub identity"
+      }
+    ],
+    "allowed_no_upstream_repositories": [
+      {
+        "repo": "LocalSpeechToText",
+        "reason": "local-only repository has no remote destination"
+      }
+    ]
+  },
   "smoke": {
     "local_container_repositories": [
       {
@@ -22,6 +36,12 @@
         "repo": "Qdrant",
         "environment_name": "QDRANT_TEST_ENVIRONMENT",
         "environment_value": "Container"
+      },
+      {
+        "repo": "LabelStudio"
+      },
+      {
+        "repo": "Weaviate"
       }
     ]
   }
