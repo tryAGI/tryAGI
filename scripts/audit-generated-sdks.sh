@@ -20,10 +20,10 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
-  sync       Fetch origin/main, safely fast-forward clean main checkouts, and write generated-sdk-sync.tsv.
+  sync       Fetch origin/main, safely fast-forward clean main checkouts, and verify workspace hygiene.
   summary    Write settings + workflow TSV reports and print a short summary.
   settings   Write generated-sdk-settings.tsv with auto-merge related repo settings.
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
@@ -34,6 +34,7 @@ Modes:
   repos      Print the generated SDK repos detected in the current workspace.
   local-builds Build each detected generated SDK solution locally and write generated-sdk-local-builds.tsv.
   local-trims Run autosdk trim for each detected generated SDK project and write generated-sdk-local-trims.tsv.
+  local-smoke Run explicitly allowlisted local/container tests that cannot consume paid API credits.
 
 Options:
   --repo REGEX   Only include repo names matching the regular expression.
@@ -152,7 +153,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims)
+      sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims|local-smoke)
         MODE="$1"
         shift
         ;;
@@ -197,6 +198,36 @@ list_generated_sdk_repos() {
       printf '%s\n' "$repo_name"
     fi
   done | sort
+}
+
+list_workspace_repos() {
+  printf '.\n'
+  find "$ROOT_DIR" -mindepth 2 -maxdepth 2 -type d -name .git -print \
+    | sed -e "s#^$ROOT_DIR/##" -e 's#/.git$##' \
+    | sort
+}
+
+tracked_environment_files() {
+  local repo="$1"
+  local repo_dir="$ROOT_DIR"
+
+  if [[ "$repo" != "." ]]; then
+    repo_dir="$ROOT_DIR/$repo"
+  fi
+
+  git -C "$repo_dir" ls-files | python3 -c '
+import os
+import sys
+
+safe_templates = {".env.example", ".env.sample", ".env.template"}
+for line in sys.stdin:
+    path = line.rstrip("\n")
+    name = os.path.basename(path)
+    if name in safe_templates:
+        continue
+    if name == ".env" or name.startswith(".env.") or name.endswith(".env"):
+        print(path)
+'
 }
 
 repo_api_target() {
@@ -363,6 +394,69 @@ write_sync_report() {
   printf '%s\n' "$output_path"
 }
 
+write_workspace_hygiene_report() {
+  local output_path="$OUT_DIR/workspace-repository-hygiene.tsv"
+  local repo
+  local repo_dir
+  local branch
+  local dirty_count
+  local staged_count
+  local tracked_env_files
+  local status
+  local details
+
+  mkdir -p "$OUT_DIR"
+  printf 'repo\tbranch\tdirty_paths\tstaged_paths\ttracked_environment_files\tstatus\tdetails\n' > "$output_path"
+
+  while IFS= read -r repo; do
+    repo_dir="$ROOT_DIR"
+    if [[ "$repo" != "." ]]; then
+      repo_dir="$ROOT_DIR/$repo"
+    fi
+
+    branch="$(git -C "$repo_dir" symbolic-ref --short -q HEAD 2>/dev/null || printf 'detached')"
+    dirty_count="$(git -C "$repo_dir" status --porcelain | awk 'END { print NR + 0 }')"
+    staged_count="$(git -C "$repo_dir" diff --cached --name-only | awk 'END { print NR + 0 }')"
+    tracked_env_files="$(tracked_environment_files "$repo" | paste -sd ',' -)"
+    status="clean"
+    details=""
+
+    if [[ -n "$tracked_env_files" ]]; then
+      status="tracked-environment-file"
+      details="tracked secret-bearing environment filenames are forbidden; templates such as .env.example are allowed"
+    elif [[ "$dirty_count" != "0" ]]; then
+      status="dirty"
+      details="working tree contains staged, modified, or untracked paths"
+    elif [[ "$branch" == "detached" ]]; then
+      status="detached"
+      details="repository is not on a named branch"
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$branch" "$dirty_count" "$staged_count" "$tracked_env_files" "$status" "$details" >> "$output_path"
+  done < <(list_workspace_repos)
+
+  printf '%s\n' "$output_path"
+}
+
+workspace_hygiene_has_failures() {
+  local hygiene_path="$1"
+
+  awk -F '\t' 'NR > 1 && $6 != "clean" { found = 1 } END { exit found ? 0 : 1 }' "$hygiene_path"
+}
+
+print_workspace_hygiene_summary() {
+  local hygiene_path="$1"
+
+  printf 'Workspace hygiene report: %s\n' "$hygiene_path"
+  printf 'Clean repositories: %s\n' "$(awk -F '\t' 'NR > 1 && $6 == "clean" { count++ } END { print count + 0 }' "$hygiene_path")"
+  printf 'Repositories requiring attention: %s\n' "$(awk -F '\t' 'NR > 1 && $6 != "clean" { count++ } END { print count + 0 }' "$hygiene_path")"
+
+  if workspace_hygiene_has_failures "$hygiene_path"; then
+    awk -F '\t' 'NR > 1 && $6 != "clean" { printf "  %s\t%s\t%s\n", $1, $6, $7 }' "$hygiene_path"
+  fi
+}
+
 sync_report_has_failures() {
   local sync_path="$1"
 
@@ -393,7 +487,9 @@ print_sync_summary() {
 
 require_ready_sync_report() {
   local sync_path="$OUT_DIR/generated-sdk-sync.tsv"
+  local hygiene_path="$OUT_DIR/workspace-repository-hygiene.tsv"
   local repo
+  local repo_dir
   local row
   local status
   local recorded_head
@@ -425,6 +521,27 @@ PY
     print_sync_summary "$sync_path" >&2
     exit 1
   fi
+
+  if [[ ! -f "$hygiene_path" ]] || workspace_hygiene_has_failures "$hygiene_path"; then
+    echo "Workspace repository hygiene is missing or contains blockers: $hygiene_path" >&2
+    [[ ! -f "$hygiene_path" ]] || print_workspace_hygiene_summary "$hygiene_path" >&2
+    exit 1
+  fi
+
+  while IFS= read -r repo; do
+    repo_dir="$ROOT_DIR"
+    if [[ "$repo" != "." ]]; then
+      repo_dir="$ROOT_DIR/$repo"
+    fi
+    if [[ -n "$(git -C "$repo_dir" status --porcelain)" ]]; then
+      echo "Workspace repository $repo became dirty after the sync snapshot." >&2
+      exit 1
+    fi
+    if [[ -n "$(tracked_environment_files "$repo")" ]]; then
+      echo "Workspace repository $repo tracks a forbidden environment file." >&2
+      exit 1
+    fi
+  done < <(list_workspace_repos)
 
   while IFS= read -r repo; do
     row="$(awk -F '\t' -v repo="$repo" 'NR > 1 && $1 == repo { print; exit }' "$sync_path")"
@@ -1062,6 +1179,80 @@ write_local_trims_report() {
   done < <(list_generated_sdk_repos)
 
   printf '%s\n' "$output_path"
+}
+
+list_local_smoke_targets() {
+  jq -r '.smoke.local_container_repositories[]? | [.repo, .environment_name, (.environment_value // "Container")] | @tsv' \
+    "$CONFIG_PATH" | while IFS=$'\t' read -r repo environment_name environment_value; do
+      if [[ -n "$REPO_FILTER" ]] && ! [[ "$repo" =~ $REPO_FILTER ]]; then
+        continue
+      fi
+      printf '%s\t%s\t%s\n' "$repo" "$environment_name" "$environment_value"
+    done
+}
+
+write_local_smoke_report() {
+  local output_path="$OUT_DIR/generated-sdk-local-smoke.tsv"
+  local log_dir="$OUT_DIR/local-smoke-logs"
+  local repo
+  local environment_name
+  local environment_value
+  local project_path
+  local relative_project_path
+  local log_path
+  local started_at
+  local ended_at
+  local duration_seconds
+  local exit_code
+  local status
+
+  mkdir -p "$OUT_DIR" "$log_dir"
+  printf 'repo\tproject\tenvironment\tstatus\texit_code\tduration_seconds\tlog_path\tdetails\n' > "$output_path"
+
+  while IFS=$'\t' read -r repo environment_name environment_value; do
+    project_path="$(find "$ROOT_DIR/$repo/src/tests" -type f -name '*.csproj' -print 2>/dev/null | sort | sed -n '1p')"
+    if [[ -z "$project_path" ]]; then
+      printf '%s\t\t%s=%s\tmissing-project\t\t\t\tconfigured smoke test project is missing\n' \
+        "$repo" "$environment_name" "$environment_value" >> "$output_path"
+      continue
+    fi
+
+    relative_project_path="${project_path#"$ROOT_DIR/$repo/"}"
+    log_path="$log_dir/$repo.log"
+    started_at="$(date +%s)"
+
+    set +e
+    env "$environment_name=$environment_value" \
+      dotnet test "$project_path" -c Release --nologo > "$log_path" 2>&1
+    exit_code="$?"
+    set -e
+
+    ended_at="$(date +%s)"
+    duration_seconds="$((ended_at - started_at))"
+    status="success"
+    if [[ "$exit_code" != "0" ]]; then
+      status="failed"
+    fi
+
+    printf '%s\t%s\t%s=%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$relative_project_path" "$environment_name" "$environment_value" \
+      "$status" "$exit_code" "$duration_seconds" "$log_path" \
+      "allowlisted local container; no provider credentials or paid endpoints" >> "$output_path"
+  done < <(list_local_smoke_targets)
+
+  printf '%s\n' "$output_path"
+}
+
+print_local_smoke_summary() {
+  local smoke_path="$1"
+
+  printf 'Local smoke report: %s\n' "$smoke_path"
+  printf 'Local smoke successes: %s\n' "$(awk -F '\t' 'NR > 1 && $4 == "success" { count++ } END { print count + 0 }' "$smoke_path")"
+  printf 'Local smoke failures: %s\n' "$(awk -F '\t' 'NR > 1 && $4 != "success" { count++ } END { print count + 0 }' "$smoke_path")"
+
+  if awk -F '\t' 'NR > 1 && $4 != "success" { found = 1 } END { exit found ? 0 : 1 }' "$smoke_path"; then
+    awk -F '\t' 'NR > 1 && $4 != "success" { printf "  %s\t%s\t%s\t%s\n", $1, $4, $5, $7 }' "$smoke_path"
+  fi
 }
 
 write_representations_report() {
@@ -1756,6 +1947,7 @@ print_summary() {
 
 main() {
   local sync_path
+  local hygiene_path
   local settings_path
   local workflows_path
   local issues_path
@@ -1763,6 +1955,7 @@ main() {
   local briefing_path
   local local_builds_path
   local local_trims_path
+  local local_smoke_path
   local representations_path
 
   require_command jq
@@ -1776,7 +1969,7 @@ main() {
   if [[ "$MODE" == "sync" ]]; then
     require_command gh
     require_github_auth
-  elif [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" ]]; then
+  elif [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" || "$MODE" == "local-smoke" ]]; then
     require_command dotnet
   else
     if [[ "$MODE" != "representations" ]]; then
@@ -1787,6 +1980,13 @@ main() {
   if [[ "$MODE" == "local-trims" || "$MODE" == "representations" || "$MODE" == "briefing" ]]; then
     require_command autosdk
   fi
+  if [[ "$MODE" == "local-smoke" ]]; then
+    require_command docker
+    if ! docker info >/dev/null 2>&1; then
+      echo "Docker is required for the non-paid local smoke lane." >&2
+      exit 1
+    fi
+  fi
 
   if [[ "$MODE" != "sync" && "$MODE" != "repos" ]]; then
     require_ready_sync_report
@@ -1795,9 +1995,11 @@ main() {
   case "$MODE" in
     sync)
       sync_path="$(write_sync_report)"
+      hygiene_path="$(write_workspace_hygiene_report)"
       write_summary_report "$MODE" >/dev/null
       print_sync_summary "$sync_path"
-      if sync_report_has_failures "$sync_path"; then
+      print_workspace_hygiene_summary "$hygiene_path"
+      if sync_report_has_failures "$sync_path" || workspace_hygiene_has_failures "$hygiene_path"; then
         exit 2
       fi
       ;;
@@ -1838,6 +2040,10 @@ main() {
       local_trims_path="$(write_local_trims_report)"
       write_summary_report "$MODE" "" "" "" "" "" "$local_trims_path" >/dev/null
       print_local_trim_summary "$local_trims_path"
+      ;;
+    local-smoke)
+      local_smoke_path="$(write_local_smoke_report)"
+      print_local_smoke_summary "$local_smoke_path"
       ;;
     summary)
       settings_path="$(write_settings_report)"

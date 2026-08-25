@@ -8,6 +8,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 
 - Generated SDK repo detection by scanning local repos for `src/libs/*/generate.sh`
 - A repository synchronization preflight that fetches/prunes `origin/main`, safely fast-forwards clean `main` checkouts, and detects missing remote AutoSDK repositories
+- A workspace-wide hygiene gate that blocks dirty or detached repositories and tracked secret-bearing `.env` filenames
 - GitHub repo settings required for bot PR auto-merge:
   - `allow_auto_merge`
   - `delete_branch_on_merge`
@@ -57,6 +58,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 # Local autosdk trim checks across generated SDK projects
 ./scripts/audit-generated-sdks.sh local-trims
 
+# No-cost smoke tests against explicitly allowlisted local containers
+./scripts/audit-generated-sdks.sh local-smoke
+
 # All reports plus daily text briefing
 ./scripts/audit-generated-sdks.sh briefing
 
@@ -77,6 +81,10 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Records the GitHub API target, branch, dirty state, HEAD before and after synchronization, fetched `origin/main`, ahead/behind counts, action, timestamp, and status
   - Fetches with pruning and only fast-forwards clean `main` checkouts; it never stashes, overwrites, rewrites, or switches local work
   - Treats dirty, ahead, diverged, wrong-branch, fetch-failed, missing-local, and inventory-error rows as blocking findings
+- `workspace-repository-hygiene.tsv`
+  - Covers every Git repository directly inside the workspace, plus the workspace repository itself
+  - Blocks staged, modified, or untracked paths, detached HEADs, and tracked secret-bearing `.env` filenames
+  - Allows templates named `.env.example`, `.env.sample`, or `.env.template`
 - `generated-sdk-settings.tsv`
   - One row per detected generated SDK repo
   - `true/false` flags for the three auto-merge related settings
@@ -99,6 +107,10 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-local-trims.tsv`
   - One row per detected generated SDK project
   - Includes project path, status, exit code, duration, and the local trim log path
+- `generated-sdk-local-smoke.tsv`
+  - Runs only repositories allowlisted under `smoke.local_container_repositories`
+  - Forces local Testcontainers environments and never targets a paid provider endpoint
+  - Includes project, forced environment, status, exit code, duration, and log path
 - `generated-sdk-representations.tsv`
   - One row per request/response media-type risk in generated SDK OpenAPI documents
   - Includes operation, direction, selected and declared media types, severity, and a stable finding code
@@ -142,6 +154,7 @@ The tracked config file currently controls:
 - `workflows.new_repo_days`
 - `signals.run_limit`
 - `signals.ignored_skip_signal_repos`
+- `smoke.local_container_repositories`
 
 Add new keys there when the audit grows. The script treats the config as the default policy layer, and environment variables or `--config` are the escape hatches for temporary overrides.
 
@@ -180,13 +193,14 @@ Add new keys there when the audit grows. The script treats the config as the def
 
 ## Follow-up workflow
 
-1. Run `./scripts/audit-generated-sdks.sh sync` and resolve every blocking synchronization row. Clone a missing remote SDK; commit/push intentional local work; otherwise return the checkout to clean `main` without discarding changes.
+1. Run `./scripts/audit-generated-sdks.sh sync` and resolve every blocking synchronization or workspace-hygiene row. Clone a missing remote SDK; commit/push intentional local work; otherwise return the checkout to clean `main` without discarding changes. Never commit a real `.env` file.
 2. Run `./scripts/audit-generated-sdks.sh summary`.
 3. Run `./scripts/audit-generated-sdks.sh briefing` when you want the full daily text pass.
 4. Run `./scripts/audit-generated-sdks.sh local-trims` when checking NativeAOT/trimming health.
-5. Run `./scripts/audit-generated-sdks.sh representations` after generator or OpenAPI media-type changes.
-6. Open the failing repo locally.
-7. Fix the repo, generator, or org setting.
-8. Commit and push on `main`.
-9. Rerun `sync` after any repository change, then rerun the affected audit modes.
-10. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
+5. Run `./scripts/audit-generated-sdks.sh local-smoke` for the configured no-cost local-container acceptance lane.
+6. Run `./scripts/audit-generated-sdks.sh representations` after generator or OpenAPI media-type changes.
+7. Open the failing repo locally.
+8. Fix the repo, generator, or org setting.
+9. Commit and push on `main`.
+10. Rerun `sync` after any repository change, then rerun the affected audit modes.
+11. Check any triggered GitHub Actions workflows and wait for them to finish successfully.

@@ -10,5 +10,19 @@
     "ignored_skip_signal_repos": [
       "OpenAI"
     ]
+  },
+  "smoke": {
+    "local_container_repositories": [
+      {
+        "repo": "Chroma",
+        "environment_name": "CHROMA_TEST_ENVIRONMENT",
+        "environment_value": "Container"
+      },
+      {
+        "repo": "Qdrant",
+        "environment_name": "QDRANT_TEST_ENVIRONMENT",
+        "environment_value": "Container"
+      }
+    ]
   }
 }

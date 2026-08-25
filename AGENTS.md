@@ -158,12 +158,13 @@ Use `Anthropic/src/libs/Anthropic/Extensions/AnthropicClient.ChatClient.cs` as t
 
 Use `./scripts/audit-generated-sdks.sh` from the workspace root when you need an org-wide snapshot of generated SDK health.
 
-- Run `./scripts/audit-generated-sdks.sh sync` first. It fetches/prunes `origin/main`, fast-forwards only clean `main` checkouts, records SHA/branch/dirty/ahead/behind evidence, detects missing remote AutoSDK repositories, and blocks downstream modes when any checkout is unsafe or stale.
+- Run `./scripts/audit-generated-sdks.sh sync` first. It fetches/prunes `origin/main`, fast-forwards only clean `main` checkouts, records SHA/branch/dirty/ahead/behind evidence, detects missing remote AutoSDK repositories, and blocks downstream modes when any checkout is unsafe or stale. It also requires every Git repository in the workspace to be clean and forbids tracked real `.env` files while allowing explicit templates such as `.env.example`.
 - `./scripts/audit-generated-sdks.sh summary` audits repo merge settings plus the latest `auto-update.yml` and `dotnet.yml` runs, then writes TSV reports to `/tmp/tryagi-sdk-audit/`
 - `./scripts/audit-generated-sdks.sh settings` only checks `allow_auto_merge`, `delete_branch_on_merge`, and `allow_update_branch`
 - `./scripts/audit-generated-sdks.sh workflows` only checks the latest regeneration and publish runs
 - `./scripts/audit-generated-sdks.sh issues` writes the current open-issue inventory for generated SDK repos
 - `./scripts/audit-generated-sdks.sh signals` inspects the latest completed publish logs for warning lines, skipped tests, and inconclusive-test signals
+- `./scripts/audit-generated-sdks.sh local-smoke` runs only the configured no-cost local-container test lane; never add a credentialed or paid provider endpoint to this allowlist
 - `./scripts/audit-generated-sdks.sh representations` audits OpenAPI media-type selection and encoder risks using AutoSDK's shared capability matrix
 - `./scripts/audit-generated-sdks.sh briefing` writes all reports plus a daily text briefing
 - `./scripts/audit-generated-sdks.sh --repo '^(OpenAI|Anthropic)$' summary` limits the audit to matching repos
