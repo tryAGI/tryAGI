@@ -164,6 +164,7 @@ Use `./scripts/audit-generated-sdks.sh` from the workspace root when you need an
 - `./scripts/audit-generated-sdks.sh workflows` only checks the latest regeneration and publish runs
 - `./scripts/audit-generated-sdks.sh issues` writes the current open-issue inventory for generated SDK repos
 - `./scripts/audit-generated-sdks.sh signals` inspects the latest completed publish logs for warning lines, skipped tests, and inconclusive-test signals
+- `./scripts/audit-generated-sdks.sh visibility` verifies configured public operations remain present, unhidden, and stable in normalized OpenAPI specs
 - `./scripts/audit-generated-sdks.sh local-smoke` runs only the configured no-cost local-container test lane; never add a credentialed or paid provider endpoint to this allowlist
 - `./scripts/audit-generated-sdks.sh representations` audits OpenAPI media-type selection and encoder risks using AutoSDK's shared capability matrix
 - `./scripts/audit-generated-sdks.sh briefing` writes all reports plus a daily text briefing

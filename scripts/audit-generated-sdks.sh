@@ -20,7 +20,7 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   sync       Fetch origin/main, safely fast-forward clean main checkouts, and verify workspace hygiene.
@@ -29,6 +29,7 @@ Modes:
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
   signals    Write generated-sdk-log-signals.tsv by scanning the latest completed Publish logs.
+  visibility Audit configured operations that must remain public in normalized OpenAPI specs.
   representations Audit OpenAPI media representations and write generated-sdk-representations.tsv.
   briefing   Write all reports plus daily-briefing.txt.
   repos      Print the generated SDK repos detected in the current workspace.
@@ -153,7 +154,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      sync|summary|settings|workflows|issues|signals|representations|briefing|repos|local-builds|local-trims|local-smoke)
+      sync|summary|settings|workflows|issues|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke)
         MODE="$1"
         shift
         ;;
@@ -1344,6 +1345,39 @@ print_local_smoke_summary() {
   fi
 }
 
+write_operation_visibility_report() {
+  local output_path="$OUT_DIR/generated-sdk-operation-visibility.tsv"
+  local args=(
+    --root "$ROOT_DIR"
+    --config "$CONFIG_PATH"
+    --output "$output_path"
+  )
+
+  mkdir -p "$OUT_DIR"
+  if [[ -n "$REPO_FILTER" ]]; then
+    args+=(--repo-regex "$REPO_FILTER")
+  fi
+
+  python3 "$ROOT_DIR/scripts/audit_required_public_operations.py" "${args[@]}"
+  printf '%s\n' "$output_path"
+}
+
+print_operation_visibility_summary() {
+  local visibility_path="$1"
+
+  printf 'Required public operation report: %s\n' "$visibility_path"
+  printf 'Required public operation checks: %s\n' "$(
+    awk -F '\t' 'NR > 1 { count++ } END { print count + 0 }' "$visibility_path"
+  )"
+  printf 'Required public operation failures: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $8 != "ok" { count++ } END { print count + 0 }' "$visibility_path"
+  )"
+
+  if awk -F '\t' 'NR > 1 && $8 != "ok" { found = 1 } END { exit found ? 0 : 1 }' "$visibility_path"; then
+    awk -F '\t' 'NR > 1 && $8 != "ok" { printf "  %s\t%s %s\t%s\t%s\n", $1, $2, $3, $8, $10 }' "$visibility_path"
+  fi
+}
+
 write_representations_report() {
   local output_path="$OUT_DIR/generated-sdk-representations.tsv"
   local all_output_path="$OUT_DIR/.generated-sdk-representations-all.tsv"
@@ -1440,9 +1474,10 @@ render_briefing_text() {
   local issues_path="$3"
   local signals_path="$4"
   local representations_path="$5"
-  local output_path="$6"
+  local visibility_path="$6"
+  local output_path="$7"
 
-  python3 - <<'PY' "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$output_path"
+  python3 - <<'PY' "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$visibility_path" "$output_path"
 import csv
 import os
 import re
@@ -1450,7 +1485,7 @@ import sys
 from collections import Counter
 from datetime import datetime
 
-settings_path, workflows_path, issues_path, signals_path, representations_path, output_path = sys.argv[1:]
+settings_path, workflows_path, issues_path, signals_path, representations_path, visibility_path, output_path = sys.argv[1:]
 signal_skip_ignore_regex = os.environ.get("TRYAGI_SIGNAL_SKIP_IGNORE_REGEX", "^(OpenAI)$")
 
 def read_tsv(path):
@@ -1462,6 +1497,7 @@ workflows = read_tsv(workflows_path)
 issues = read_tsv(issues_path)
 signals = read_tsv(signals_path)
 representations = read_tsv(representations_path)
+visibility = read_tsv(visibility_path)
 
 repo_count = len(settings)
 non_compliant = sum(
@@ -1594,6 +1630,20 @@ if representation_error_repos:
     repo_bits = [f"{repo} with {count}" for repo, count in representation_error_repos.most_common(5)]
     lines.append("The highest representation error counts are " + ", ".join(repo_bits) + ".")
 
+visibility_failures = [row for row in visibility if row.get("status") != "ok"]
+if visibility_failures:
+    lines.append(
+        f"{len(visibility_failures)} required public operations are hidden, missing, or changed."
+    )
+    for row in visibility_failures[:8]:
+        lines.append(
+            f"{row['repo']} {row['method']} {row['path']} reported {row['status']}."
+        )
+else:
+    lines.append(
+        f"All {len(visibility)} configured public operation visibility checks passed."
+    )
+
 lines.append("End of briefing.")
 
 with open(output_path, "w", encoding="utf-8") as f:
@@ -1610,6 +1660,7 @@ write_summary_report() {
   local local_builds_path="${6:-}"
   local local_trims_path="${7:-}"
   local representations_path="${8:-}"
+  local visibility_path="${9:-}"
   local output_path="$OUT_DIR/generated-sdk-summary.tsv"
   local sync_path="$OUT_DIR/generated-sdk-sync.tsv"
 
@@ -1621,6 +1672,7 @@ write_summary_report() {
   local_builds_path="$(resolve_report_path "$local_builds_path" "generated-sdk-local-builds.tsv")"
   local_trims_path="$(resolve_report_path "$local_trims_path" "generated-sdk-local-trims.tsv")"
   representations_path="$(resolve_report_path "$representations_path" "generated-sdk-representations.tsv")"
+  visibility_path="$(resolve_report_path "$visibility_path" "generated-sdk-operation-visibility.tsv")"
 
   python3 - <<'PY' \
     "$mode_name" \
@@ -1633,6 +1685,7 @@ write_summary_report() {
     "$local_builds_path" \
     "$local_trims_path" \
     "$representations_path" \
+    "$visibility_path" \
     "$sync_path" \
     "$output_path"
 import csv
@@ -1653,6 +1706,7 @@ from datetime import datetime, timezone
     local_builds_path,
     local_trims_path,
     representations_path,
+    visibility_path,
     sync_path,
     output_path,
 ) = sys.argv[1:]
@@ -1706,6 +1760,7 @@ signals = read_tsv(signals_path)
 local_builds = read_tsv(local_builds_path)
 local_trims = read_tsv(local_trims_path)
 representations = read_tsv(representations_path)
+visibility = read_tsv(visibility_path)
 sync_rows = read_tsv(sync_path)
 
 repo_count = (
@@ -1802,6 +1857,8 @@ local_trim_missing_projects = sum(1 for row in local_trims if row.get("status") 
 representation_findings = len(representations)
 representation_errors = sum(1 for row in representations if row.get("severity") == "error")
 representation_warnings = sum(1 for row in representations if row.get("severity") == "warning")
+public_operation_checks = len(visibility)
+public_operation_failures = sum(1 for row in visibility if row.get("status") != "ok")
 sync_current = sum(1 for row in sync_rows if row.get("status") == "current")
 sync_fast_forwarded = sum(1 for row in sync_rows if row.get("status") == "fast-forwarded")
 sync_unsynchronized = sum(
@@ -1840,6 +1897,8 @@ fields = [
     "representation_findings",
     "representation_errors",
     "representation_warnings",
+    "public_operation_checks",
+    "public_operation_failures",
     "sync_current",
     "sync_fast_forwarded",
     "sync_unsynchronized",
@@ -1851,6 +1910,7 @@ fields = [
     "local_builds_report",
     "local_trims_report",
     "representations_report",
+    "operation_visibility_report",
     "sync_report",
 ]
 
@@ -1885,6 +1945,8 @@ row = {
     "representation_findings": str(representation_findings),
     "representation_errors": str(representation_errors),
     "representation_warnings": str(representation_warnings),
+    "public_operation_checks": str(public_operation_checks),
+    "public_operation_failures": str(public_operation_failures),
     "sync_current": str(sync_current),
     "sync_fast_forwarded": str(sync_fast_forwarded),
     "sync_unsynchronized": str(sync_unsynchronized),
@@ -1896,6 +1958,7 @@ row = {
     "local_builds_report": local_builds_path,
     "local_trims_report": local_trims_path,
     "representations_report": representations_path,
+    "operation_visibility_report": visibility_path,
     "sync_report": sync_path,
 }
 
@@ -1914,6 +1977,7 @@ print_summary() {
   local workflows_path="$3"
   local issues_path="${4:-}"
   local signals_path="${5:-}"
+  local visibility_path="${6:-}"
   local summary_path
   local repo_count
   local settings_non_compliant
@@ -1925,7 +1989,7 @@ print_summary() {
   local publish_no_runs
   local publish_failures
 
-  summary_path="$(write_summary_report "$mode_name" "$settings_path" "$workflows_path" "$issues_path" "$signals_path")"
+  summary_path="$(write_summary_report "$mode_name" "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "" "" "" "$visibility_path")"
   repo_count="$(awk -F '\t' 'NR == 2 { print $4 }' "$summary_path")"
   settings_non_compliant="$(
     awk -F '\t' 'NR > 1 && $1 != "" && ($2 != "true" || $3 != "true" || $4 != "true") { count++ } END { print count + 0 }' "$settings_path"
@@ -1991,6 +2055,10 @@ print_summary() {
     )"
   fi
 
+  if [[ -n "$visibility_path" ]]; then
+    print_operation_visibility_summary "$visibility_path"
+  fi
+
   if [[ "$autosdk_bootstrap_gaps" != "0" ]]; then
     echo
     echo "AutoSDK bootstrap gaps:"
@@ -2046,6 +2114,7 @@ main() {
   local local_trims_path
   local local_smoke_path
   local representations_path
+  local visibility_path
 
   require_command jq
   require_command python3
@@ -2061,7 +2130,7 @@ main() {
   elif [[ "$MODE" == "local-builds" || "$MODE" == "local-trims" || "$MODE" == "local-smoke" ]]; then
     require_command dotnet
   else
-    if [[ "$MODE" != "representations" ]]; then
+    if [[ "$MODE" != "representations" && "$MODE" != "visibility" ]]; then
       require_command gh
       require_github_auth
     fi
@@ -2115,6 +2184,14 @@ main() {
       write_summary_report "$MODE" "" "" "" "$signals_path" >/dev/null
       printf '%s\n' "$signals_path"
       ;;
+    visibility)
+      visibility_path="$(write_operation_visibility_report)"
+      write_summary_report "$MODE" "" "" "" "" "" "" "" "$visibility_path" >/dev/null
+      print_operation_visibility_summary "$visibility_path"
+      if awk -F '\t' 'NR > 1 && $8 != "ok" { found = 1 } END { exit found ? 0 : 1 }' "$visibility_path"; then
+        exit 2
+      fi
+      ;;
     representations)
       representations_path="$(write_representations_report)"
       write_summary_report "$MODE" "" "" "" "" "" "" "$representations_path" >/dev/null
@@ -2137,7 +2214,8 @@ main() {
     summary)
       settings_path="$(write_settings_report)"
       workflows_path="$(write_workflows_report)"
-      print_summary "$MODE" "$settings_path" "$workflows_path"
+      visibility_path="$(write_operation_visibility_report)"
+      print_summary "$MODE" "$settings_path" "$workflows_path" "" "" "$visibility_path"
       ;;
     briefing)
       settings_path="$(write_settings_report)"
@@ -2145,9 +2223,10 @@ main() {
       issues_path="$(write_issues_report)"
       signals_path="$(write_signals_report)"
       representations_path="$(write_representations_report)"
+      visibility_path="$(write_operation_visibility_report)"
       briefing_path="$OUT_DIR/daily-briefing.txt"
-      render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$briefing_path"
-      print_summary "$MODE" "$settings_path" "$workflows_path" "$issues_path" "$signals_path"
+      render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$visibility_path" "$briefing_path"
+      print_summary "$MODE" "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$visibility_path"
       print_representation_summary "$representations_path"
       printf 'Briefing text: %s\n' "$briefing_path"
       ;;

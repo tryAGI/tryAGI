@@ -11,6 +11,18 @@
       "OpenAI"
     ]
   },
+  "operation_visibility": {
+    "required_public_operations": [
+      {
+        "repo": "Chroma",
+        "spec_path": "src/libs/Chroma/openapi.json",
+        "method": "POST",
+        "path": "/api/v2/reset",
+        "operation_id": "reset",
+        "reason": "System.ResetAsync is a supported public contract; see tryAGI/Chroma#146"
+      }
+    ]
+  },
   "workspace": {
     "allowed_ahead_repositories": [
       {

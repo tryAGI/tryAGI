@@ -21,6 +21,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
   - warning lines
   - skipped tests
   - inconclusive-test markers
+- Policy-backed checks for operations that tryAGI intentionally exposes publicly even when an upstream schema uses hidden/ignore extensions
 - Optional local validation for generated SDKs:
   - `dotnet build -c Release`
   - `autosdk trim` for NativeAOT/trimming compatibility
@@ -48,6 +49,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 
 # Warning / skipped-test signals from the latest completed Publish runs
 ./scripts/audit-generated-sdks.sh signals
+
+# Required public operations that must not be hidden or renamed
+./scripts/audit-generated-sdks.sh visibility
 
 # OpenAPI request/response representation risks
 ./scripts/audit-generated-sdks.sh representations
@@ -102,6 +106,10 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-log-signals.tsv`
   - One row per repo for the latest completed `Publish` run
   - Includes raw warning-line counts, skipped-test counts, and inconclusive-test hits
+- `generated-sdk-operation-visibility.tsv`
+  - One row per operation configured under `operation_visibility.required_public_operations`
+  - Verifies the repository and normalized JSON spec exist, the method/path remains present, the `operationId` matches policy, and no supported hidden/ignore extension excludes it
+  - Respects `--repo` so a single SDK policy can be checked without scanning unrelated entries
 - `generated-sdk-local-builds.tsv`
   - One row per detected generated SDK repo
   - Includes solution path, status, exit code, duration, and the local build log path
@@ -156,6 +164,7 @@ The tracked config file currently controls:
 - `workflows.new_repo_days`
 - `signals.run_limit`
 - `signals.ignored_skip_signal_repos`
+- `operation_visibility.required_public_operations`
 - `workspace.allowed_ahead_repositories`
 - `workspace.allowed_no_upstream_repositories`
 - `smoke.local_container_repositories`
@@ -188,6 +197,8 @@ Add new keys there when the audit grows. The script treats the config as the def
   - The latest completed publish run skipped tests; often expected for credential-gated tests, but still worth tracking
 - Non-zero `inconclusive_hits`
   - The latest completed publish run contains inconclusive-test markers or skipped-by-design test paths
+- `hidden-operation`, `missing-operation`, or `operation-id-mismatch`
+  - A configured public SDK contract is being excluded or has drifted in the normalized provider specification; fix the repository's source-normalization step and regenerate
 - `local-builds` failure
   - The SDK does not build locally in Release configuration; inspect the referenced log under `/tmp/tryagi-sdk-audit/local-build-logs/`
 - `local-trims` failure
@@ -203,8 +214,9 @@ Add new keys there when the audit grows. The script treats the config as the def
 4. Run `./scripts/audit-generated-sdks.sh local-trims` when checking NativeAOT/trimming health.
 5. Run `./scripts/audit-generated-sdks.sh local-smoke` for the configured no-cost local-container acceptance lane.
 6. Run `./scripts/audit-generated-sdks.sh representations` after generator or OpenAPI media-type changes.
-7. Open the failing repo locally.
-8. Fix the repo, generator, or org setting.
-9. Commit and push on `main`.
-10. Rerun `sync` after any repository change, then rerun the affected audit modes.
-11. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
+7. Run `./scripts/audit-generated-sdks.sh visibility` after normalized schema visibility workarounds change.
+8. Open the failing repo locally.
+9. Fix the repo, generator, or org setting.
+10. Commit and push on `main`.
+11. Rerun `sync` after any repository change, then rerun the affected audit modes.
+12. Check any triggered GitHub Actions workflows and wait for them to finish successfully.
