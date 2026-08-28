@@ -283,6 +283,55 @@ print(f"{org}/{repo}")
 PY
 }
 
+try_fast_forward_upstream_equivalent_dirty_checkout() {
+  local repo_dir="$1"
+  local target_ref="$2"
+  local log_path="$3"
+  local path
+  local -a modified_paths=()
+
+  # This recovery is deliberately narrow. Staged or untracked work may carry
+  # intent that cannot be proven from the fetched target and must remain a
+  # blocker for manual inspection.
+  if ! git -C "$repo_dir" diff --cached --quiet --exit-code; then
+    return 1
+  fi
+  if [[ -n "$(git -C "$repo_dir" ls-files --others --exclude-standard)" ]]; then
+    return 1
+  fi
+
+  while IFS= read -r -d '' path; do
+    modified_paths+=("$path")
+  done < <(git -C "$repo_dir" diff --name-only -z)
+  if [[ "${#modified_paths[@]}" == "0" ]]; then
+    return 1
+  fi
+
+  # Compare each locally modified path with the fetched tree. Remote-only
+  # changes elsewhere are expected and will be applied by the fast-forward.
+  for path in "${modified_paths[@]}"; do
+    if ! git -C "$repo_dir" diff --quiet --no-ext-diff "$target_ref" -- "$path"; then
+      return 1
+    fi
+  done
+
+  # Git refuses an ordinary fast-forward when equivalent target content is
+  # merely unstaged. Temporarily staging those exact paths lets Git prove and
+  # consume the equivalence without a preservation commit or history rewrite.
+  git -C "$repo_dir" add -- "${modified_paths[@]}"
+  if git -C "$repo_dir" merge --ff-only "$target_ref" >> "$log_path" 2>&1; then
+    return 0
+  fi
+
+  # Restore the original unstaged/index shape if an unexpected merge failure
+  # occurs. The worktree content is never changed by this rollback.
+  if ! git -C "$repo_dir" diff --cached --binary HEAD -- "${modified_paths[@]}" |
+      git -C "$repo_dir" apply --cached --reverse; then
+    echo "failed to restore the index after equivalent-dirty fast-forward failure" >> "$log_path"
+  fi
+  return 1
+}
+
 write_sync_report() {
   local output_path="$OUT_DIR/generated-sdk-sync.tsv"
   local log_dir="$OUT_DIR/sync-logs"
@@ -345,8 +394,19 @@ write_sync_report() {
       else
         read -r ahead behind <<< "$(git -C "$repo_dir" rev-list --left-right --count HEAD...refs/remotes/origin/main)"
         if [[ "$dirty" == "true" ]]; then
-          status="dirty"
-          details="working tree has local changes; no fast-forward attempted"
+          if [[ "$branch" == "main" && "$ahead" == "0" && "$behind" != "0" ]] &&
+              try_fast_forward_upstream_equivalent_dirty_checkout \
+                "$repo_dir" refs/remotes/origin/main "$log_path"; then
+            status="fast-forwarded"
+            action="staged-equivalent-and-fast-forwarded"
+            details="modified tracked paths already matched origin/main; fast-forwarded without creating a preservation commit"
+            head_after="$(git -C "$repo_dir" rev-parse HEAD)"
+            ahead="0"
+            behind="0"
+          else
+            status="dirty"
+            details="working tree has local changes not proven equivalent to origin/main; no fast-forward attempted"
+          fi
         elif [[ "$branch" != "main" ]]; then
           status="wrong-branch"
           details="checkout is not on main; no fast-forward attempted"
@@ -2233,4 +2293,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
