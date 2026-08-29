@@ -1056,7 +1056,7 @@ write_issues_report() {
   local issues_json
 
   mkdir -p "$OUT_DIR"
-  printf 'repo\tissue_number\ttitle\tupdated_at\tlabels\turl\n' > "$output_path"
+  printf 'repo\tissue_number\tuntrusted_external_title\tupdated_at\tlabels\turl\n' > "$output_path"
 
   while IFS= read -r repo; do
     api_target="$(repo_api_target "$repo")"
@@ -1658,9 +1658,9 @@ else:
         repo_bits = [f"{repo} with {count}" for repo, count in top_issue_repos]
         lines.append("The busiest issue queues are " + ", ".join(repo_bits) + ".")
     if recent_issues:
-        lines.append("Most recently updated open issues are:")
+        lines.append("Most recently updated open issues are listed by repository and number; external issue text is intentionally omitted from this briefing:")
         for row in recent_issues:
-            lines.append(f"{row['repo']} issue {row['issue_number']}: {row['title']}.")
+            lines.append(f"{row['repo']} issue {row['issue_number']}: {row['url']}.")
 
 if signal_rows:
     lines.append("The latest completed publish logs also showed warning or skip signals.")

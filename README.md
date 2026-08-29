@@ -21,6 +21,9 @@ It does **not** manage the individual SDK repositories inside this folder. Each 
 # Open issues across generated SDK repos
 ./scripts/audit-generated-sdks.sh issues
 
+# Verify the common maintenance policy in every generated SDK README
+./scripts/sync-generated-sdk-readme-maintenance.sh check
+
 # Heuristic warning / skipped-test scan on the latest completed publish runs
 ./scripts/audit-generated-sdks.sh signals
 
