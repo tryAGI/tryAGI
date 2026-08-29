@@ -26,7 +26,7 @@ Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues
 Modes:
   sync       Fetch origin/main, safely fast-forward clean main checkouts, and verify workspace hygiene.
   summary    Write settings + workflow TSV reports and print a short summary.
-  settings   Write generated-sdk-settings.tsv with auto-merge related repo settings.
+  settings   Write generated-sdk-settings.tsv with auto-merge, bootstrap, and dependency-policy settings.
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
   pull-requests Write workspace-open-pull-requests.tsv with every open PR in the GitHub organization.
@@ -949,6 +949,37 @@ print(f"{status}\t{details}")
 PY
 }
 
+repo_dependabot_nuget_info() {
+  local repo="$1"
+
+  python3 - <<'PY' "$ROOT_DIR" "$repo"
+from pathlib import Path
+import re
+import sys
+
+root_dir, repo = sys.argv[1:]
+config_path = Path(root_dir) / repo / ".github" / "dependabot.yml"
+if not config_path.is_file():
+    print("missing-config\t.github/dependabot.yml")
+    raise SystemExit(0)
+
+text = config_path.read_text(encoding="utf-8", errors="replace")
+sections = re.split(r"(?m)^\s*-\s*package-ecosystem\s*:", text)
+nuget_section = next(
+    (section for section in sections[1:] if re.match(r"\s*['\"]?nuget['\"]?", section)),
+    None,
+)
+if nuget_section is None:
+    print("missing-nuget\tNuGet update entry is missing")
+elif not re.search(r"(?m)^\s*interval\s*:\s*['\"]?weekly['\"]?\s*(?:#.*)?$", nuget_section):
+    print("not-weekly\tNuGet updates must run weekly")
+elif not re.search(r"(?m)^\s*-\s*['\"]?\*['\"]?\s*(?:#.*)?$", nuget_section):
+    print("not-grouped-all\tNuGet dependency group must include *")
+else:
+    print("ok\t")
+PY
+}
+
 write_settings_report() {
   local output_path="$OUT_DIR/generated-sdk-settings.tsv"
   local repo
@@ -957,20 +988,26 @@ write_settings_report() {
   local bootstrap_info
   local bootstrap_status
   local bootstrap_details
+  local dependabot_info
+  local dependabot_status
+  local dependabot_details
 
   mkdir -p "$OUT_DIR"
-  printf 'repo\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\tautosdk_bootstrap_status\tautosdk_bootstrap_details\n' > "$output_path"
+  printf 'repo\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\tautosdk_bootstrap_status\tautosdk_bootstrap_details\tdependabot_nuget_status\tdependabot_nuget_details\n' > "$output_path"
 
   while IFS= read -r repo; do
     api_target="$(repo_api_target "$repo")"
     bootstrap_info="$(repo_autosdk_bootstrap_info "$repo")"
     bootstrap_status="$(cut -f1 <<< "$bootstrap_info")"
     bootstrap_details="$(cut -f2- <<< "$bootstrap_info")"
+    dependabot_info="$(repo_dependabot_nuget_info "$repo")"
+    dependabot_status="$(cut -f1 <<< "$dependabot_info")"
+    dependabot_details="$(cut -f2- <<< "$dependabot_info")"
 
     if settings_row="$(gh_api_with_retries "repos/$api_target" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv')"; then
-      printf '%s\t%s\t%s\n' "$settings_row" "$bootstrap_status" "$bootstrap_details" >> "$output_path"
+      printf '%s\t%s\t%s\t%s\t%s\n' "$settings_row" "$bootstrap_status" "$bootstrap_details" "$dependabot_status" "$dependabot_details" >> "$output_path"
     else
-      printf '%s\tunknown\tunknown\tunknown\t%s\t%s\n' "$repo" "$bootstrap_status" "$bootstrap_details" >> "$output_path"
+      printf '%s\tunknown\tunknown\tunknown\t%s\t%s\t%s\t%s\n' "$repo" "$bootstrap_status" "$bootstrap_details" "$dependabot_status" "$dependabot_details" >> "$output_path"
     fi
   done < <(list_generated_sdk_repos)
 
@@ -1618,6 +1655,11 @@ bootstrap_gaps = [
     for row in settings
     if row.get("autosdk_bootstrap_status") not in {"", "ok"}
 ]
+dependabot_gaps = [
+    row
+    for row in settings
+    if row.get("dependabot_nuget_status") not in {"", "ok"}
+]
 
 workflow_failures = [
     row for row in workflows
@@ -1678,6 +1720,14 @@ if bootstrap_gaps:
         lines.append(f"{row['repo']} is missing AutoSDK bootstrap in {details}.")
 else:
     lines.append("All generate scripts include an AutoSDK bootstrap step.")
+
+if dependabot_gaps:
+    lines.append(f"{len(dependabot_gaps)} repositories have a NuGet Dependabot policy gap.")
+    for row in dependabot_gaps[:6]:
+        details = row.get("dependabot_nuget_details") or row.get("dependabot_nuget_status")
+        lines.append(f"{row['repo']} has a NuGet Dependabot policy gap: {details}.")
+else:
+    lines.append("All generated SDK repositories have weekly grouped NuGet Dependabot coverage.")
 
 if workflow_failures:
     lines.append(f"There are {len(workflow_failures)} latest workflow failures that still need attention.")
@@ -1887,6 +1937,11 @@ autosdk_bootstrap_gaps = sum(
     for row in settings
     if row.get("autosdk_bootstrap_status") not in {"", "ok"}
 )
+dependabot_nuget_gaps = sum(
+    1
+    for row in settings
+    if row.get("dependabot_nuget_status") not in {"", "ok"}
+)
 
 auto_update_onboarding_gaps = sum(
     1
@@ -1979,6 +2034,7 @@ fields = [
     "repo_count",
     "settings_non_compliant",
     "autosdk_bootstrap_gaps",
+    "dependabot_nuget_gaps",
     "auto_update_onboarding_gaps",
     "auto_update_no_runs",
     "auto_update_failures",
@@ -2027,6 +2083,7 @@ row = {
     "repo_count": str(repo_count),
     "settings_non_compliant": str(settings_non_compliant),
     "autosdk_bootstrap_gaps": str(autosdk_bootstrap_gaps),
+    "dependabot_nuget_gaps": str(dependabot_nuget_gaps),
     "auto_update_onboarding_gaps": str(auto_update_onboarding_gaps),
     "auto_update_no_runs": str(auto_update_no_runs),
     "auto_update_failures": str(auto_update_failures),
@@ -2088,6 +2145,7 @@ print_summary() {
   local repo_count
   local settings_non_compliant
   local autosdk_bootstrap_gaps
+  local dependabot_nuget_gaps
   local auto_update_onboarding_gaps
   local auto_update_no_runs
   local auto_update_failures
@@ -2102,6 +2160,9 @@ print_summary() {
   )"
   autosdk_bootstrap_gaps="$(
     awk -F '\t' 'NR > 1 && $1 != "" && $5 != "ok" && $5 != "" { count++ } END { print count + 0 }' "$settings_path"
+  )"
+  dependabot_nuget_gaps="$(
+    awk -F '\t' 'NR > 1 && $1 != "" && $7 != "ok" && $7 != "" { count++ } END { print count + 0 }' "$settings_path"
   )"
   auto_update_onboarding_gaps="$(
     awk -F '\t' 'NR > 1 && $2 == "auto-update" && $5 == "new-repo-no-runs" { count++ } END { print count + 0 }' "$workflows_path"
@@ -2125,6 +2186,7 @@ print_summary() {
   printf 'Generated SDK repos: %s\n' "$repo_count"
   printf 'Non-compliant repo settings: %s\n' "$settings_non_compliant"
   printf 'AutoSDK bootstrap gaps: %s\n' "$autosdk_bootstrap_gaps"
+  printf 'NuGet Dependabot policy gaps: %s\n' "$dependabot_nuget_gaps"
   printf 'Latest auto-update onboarding gaps: %s\n' "$auto_update_onboarding_gaps"
   printf 'Latest auto-update mature no-runs: %s\n' "$auto_update_no_runs"
   printf 'Latest auto-update failures: %s\n' "$auto_update_failures"
@@ -2169,6 +2231,12 @@ print_summary() {
     echo
     echo "AutoSDK bootstrap gaps:"
     awk -F '\t' 'NR > 1 && $5 != "ok" && $5 != "" { printf "  %s\t%s\t%s\n", $1, $5, $6 }' "$settings_path"
+  fi
+
+  if [[ "$dependabot_nuget_gaps" != "0" ]]; then
+    echo
+    echo "NuGet Dependabot policy gaps:"
+    awk -F '\t' 'NR > 1 && $7 != "ok" && $7 != "" { printf "  %s\t%s\t%s\n", $1, $7, $8 }' "$settings_path"
   fi
 
   if [[ "$auto_update_onboarding_gaps" != "0" ]]; then

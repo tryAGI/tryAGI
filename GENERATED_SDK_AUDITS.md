@@ -106,6 +106,8 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - `true/false` flags for the three auto-merge related settings
   - `autosdk_bootstrap_status` reports whether every `src/libs/*/generate.sh` script bootstraps `autosdk.cli`
   - `autosdk_bootstrap_details` lists any generate scripts that are missing the bootstrap step
+  - `dependabot_nuget_status` requires a weekly NuGet update entry whose grouped package patterns include `*`
+  - `dependabot_nuget_details` explains missing, ungrouped, or non-weekly dependency coverage
 - `generated-sdk-workflows.tsv`
   - Two rows per repo: `auto-update` and `publish`
   - Includes latest run id, conclusion, timestamp, branch, URL, plus `repo_created_at` and `repo_age_days`
