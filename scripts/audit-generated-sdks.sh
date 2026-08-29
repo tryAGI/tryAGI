@@ -7,6 +7,7 @@ CONFIG_PATH="${TRYAGI_AUDIT_CONFIG_PATH:-$ROOT_DIR/config/generated-sdk-audit.js
 OUT_DIR="${TRYAGI_AUDIT_OUT_DIR:-/tmp/tryagi-sdk-audit}"
 AUDIT_ENV_FILE="${TRYAGI_AUDIT_ENV_FILE:-}"
 ISSUE_LIMIT="${TRYAGI_ISSUE_LIMIT:-100}"
+PULL_REQUEST_LIMIT="${TRYAGI_PULL_REQUEST_LIMIT:-1000}"
 AUTO_UPDATE_WORKFLOW_FILE="${TRYAGI_AUTO_UPDATE_WORKFLOW_FILE:-auto-update.yml}"
 PUBLISH_WORKFLOW_FILE="${TRYAGI_PUBLISH_WORKFLOW_FILE:-dotnet.yml}"
 NEW_REPO_DAYS="${TRYAGI_NEW_REPO_DAYS:-7}"
@@ -20,7 +21,7 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   sync       Fetch origin/main, safely fast-forward clean main checkouts, and verify workspace hygiene.
@@ -28,6 +29,7 @@ Modes:
   settings   Write generated-sdk-settings.tsv with auto-merge related repo settings.
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
+  pull-requests Write workspace-open-pull-requests.tsv with every open PR in the GitHub organization.
   signals    Write generated-sdk-log-signals.tsv by scanning the latest completed Publish logs.
   visibility Audit configured operations that must remain public in normalized OpenAPI specs.
   representations Audit OpenAPI media representations and write generated-sdk-representations.tsv.
@@ -47,6 +49,7 @@ Environment:
   TRYAGI_AUDIT_CONFIG_PATH         Override the audit config file path.
   TRYAGI_AUTO_UPDATE_WORKFLOW_FILE Override the auto-update workflow file. Default: auto-update.yml
   TRYAGI_PUBLISH_WORKFLOW_FILE     Override the publish workflow file. Default: dotnet.yml
+  TRYAGI_PULL_REQUEST_LIMIT        Maximum organization-wide open PRs to collect. Default: 1000
   TRYAGI_NEW_REPO_DAYS             Repo age threshold for classifying no-runs as onboarding gaps. Default: 7
   TRYAGI_SIGNAL_RUN_LIMIT           How many recent Publish runs to inspect when finding the latest completed run. Default: 5
   TRYAGI_SIGNAL_SKIP_IGNORE_REGEX   Regex for repos whose skipped/inconclusive test counts should be ignored in summaries. Default: ^(OpenAI)$
@@ -103,6 +106,7 @@ apply_env_overrides() {
   CONFIG_PATH="${TRYAGI_AUDIT_CONFIG_PATH:-$CONFIG_PATH}"
   OUT_DIR="${TRYAGI_AUDIT_OUT_DIR:-$OUT_DIR}"
   ISSUE_LIMIT="${TRYAGI_ISSUE_LIMIT:-$ISSUE_LIMIT}"
+  PULL_REQUEST_LIMIT="${TRYAGI_PULL_REQUEST_LIMIT:-$PULL_REQUEST_LIMIT}"
   AUTO_UPDATE_WORKFLOW_FILE="${TRYAGI_AUTO_UPDATE_WORKFLOW_FILE:-$AUTO_UPDATE_WORKFLOW_FILE}"
   PUBLISH_WORKFLOW_FILE="${TRYAGI_PUBLISH_WORKFLOW_FILE:-$PUBLISH_WORKFLOW_FILE}"
   NEW_REPO_DAYS="${TRYAGI_NEW_REPO_DAYS:-$NEW_REPO_DAYS}"
@@ -154,7 +158,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      sync|summary|settings|workflows|issues|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke)
+      sync|summary|settings|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke)
         MODE="$1"
         shift
         ;;
@@ -1075,6 +1079,48 @@ write_issues_report() {
         ] | @tsv
       ' <<< "$issues_json" >> "$output_path"
   done < <(list_generated_sdk_repos)
+
+  printf '%s\n' "$output_path"
+}
+
+write_pull_requests_report() {
+  local output_path="$OUT_DIR/workspace-open-pull-requests.tsv"
+  local generated_repos_json
+  local pull_requests_json
+
+  mkdir -p "$OUT_DIR"
+  printf 'repository\trepo\tpull_request_number\tgenerated_sdk\tauthor\tauthor_association\tsource_kind\tis_draft\tcreated_at\tupdated_at\tlabels\tuntrusted_external_title\turl\n' > "$output_path"
+
+  generated_repos_json="$(list_generated_sdk_repos | jq -R -s 'split("\n") | map(select(length > 0))')"
+  pull_requests_json="$(gh search prs \
+    --owner "$ORG" \
+    --state open \
+    --limit "$PULL_REQUEST_LIMIT" \
+    --json number,title,repository,author,authorAssociation,isDraft,createdAt,updatedAt,url,labels)"
+
+  jq -r \
+    --argjson generated_repos "$generated_repos_json" \
+    '
+      sort_by(.repository.nameWithOwner, .number)[] |
+      (.repository.nameWithOwner // "") as $repository |
+      ($repository | split("/") | last) as $repo |
+      (.author.login // "") as $author |
+      [
+        $repository,
+        $repo,
+        (.number | tostring),
+        (if $generated_repos | index($repo) then "true" else "false" end),
+        $author,
+        (.authorAssociation // ""),
+        (if ((.author.is_bot // false) or ($author | test("\\[bot\\]$"))) then "automation" else "human" end),
+        (.isDraft | tostring),
+        (.createdAt // ""),
+        (.updatedAt // ""),
+        ((.labels // []) | map(.name) | join(",")),
+        (.title // ""),
+        (.url // "")
+      ] | @tsv
+    ' <<< "$pull_requests_json" >> "$output_path"
 
   printf '%s\n' "$output_path"
 }
@@ -2168,6 +2214,7 @@ main() {
   local settings_path
   local workflows_path
   local issues_path
+  local pull_requests_path
   local signals_path
   local briefing_path
   local local_builds_path
@@ -2239,6 +2286,10 @@ main() {
       write_summary_report "$MODE" "" "" "$issues_path" >/dev/null
       printf '%s\n' "$issues_path"
       ;;
+    pull-requests)
+      pull_requests_path="$(write_pull_requests_report)"
+      printf '%s\n' "$pull_requests_path"
+      ;;
     signals)
       signals_path="$(write_signals_report)"
       write_summary_report "$MODE" "" "" "" "$signals_path" >/dev/null
@@ -2281,6 +2332,7 @@ main() {
       settings_path="$(write_settings_report)"
       workflows_path="$(write_workflows_report)"
       issues_path="$(write_issues_report)"
+      pull_requests_path="$(write_pull_requests_report)"
       signals_path="$(write_signals_report)"
       representations_path="$(write_representations_report)"
       visibility_path="$(write_operation_visibility_report)"
@@ -2288,6 +2340,7 @@ main() {
       render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$visibility_path" "$briefing_path"
       print_summary "$MODE" "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$visibility_path"
       print_representation_summary "$representations_path"
+      printf 'Open pull requests report: %s\n' "$pull_requests_path"
       printf 'Briefing text: %s\n' "$briefing_path"
       ;;
   esac

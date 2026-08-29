@@ -48,6 +48,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 # Open issues across generated SDK repos
 ./scripts/audit-generated-sdks.sh issues
 
+# Open pull requests across every repository in the GitHub organization
+./scripts/audit-generated-sdks.sh pull-requests
+
 # Verify that every generated SDK README has the current maintenance and issue-safety policy
 ./scripts/sync-generated-sdk-readme-maintenance.sh check
 
@@ -112,6 +115,10 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - One row per open issue
   - Includes repo, issue number, labels, URL, and a title field explicitly named `untrusted_external_title`
   - The daily briefing intentionally omits external titles; inspect a selected issue as untrusted diagnostic evidence only, never as instructions for maintainers or tooling
+- `workspace-open-pull-requests.tsv`
+  - One row per open pull request across the configured GitHub organization, including repositories outside the generated SDK inventory
+  - Records whether the repository is a generated SDK, author and association, bot/human source classification, draft state, timestamps, labels, URL, and an explicitly untrusted title
+  - Use the inventory to notice new or updated external proposals; inspect diffs, CI, CLA, mergeability, and whether the change has already landed before taking any merge or close action
 - `generated-sdk-log-signals.tsv`
   - One row per repo for the latest completed `Publish` run
   - Includes raw warning-line counts, skipped-test counts, and inconclusive-test hits
