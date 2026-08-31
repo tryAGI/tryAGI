@@ -106,6 +106,8 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - `true/false` flags for the three auto-merge related settings
   - `autosdk_bootstrap_status` reports whether every `src/libs/*/generate.sh` script bootstraps `autosdk.cli`
   - `autosdk_bootstrap_details` lists any generate scripts that are missing the bootstrap step
+  - `auto_merge_workflow_status` verifies the privileged auto-merge caller runs only after the unprivileged `Test` workflow completes
+  - `auto_merge_workflow_details` explains missing `workflow_run`, tested-workflow, completion, shared-workflow, or secret-inheritance gates
   - `dependabot_nuget_status` requires a weekly NuGet update entry whose grouped package patterns include `*`
   - `dependabot_nuget_details` explains missing, ungrouped, or non-weekly dependency coverage
 - `generated-sdk-workflows.tsv`

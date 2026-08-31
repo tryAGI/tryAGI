@@ -949,6 +949,58 @@ print(f"{status}\t{details}")
 PY
 }
 
+repo_auto_merge_workflow_info() {
+  local repo="$1"
+
+  python3 - <<'PY' "$ROOT_DIR" "$repo"
+from pathlib import Path
+import re
+import sys
+
+root_dir, repo = sys.argv[1:]
+workflow_path = Path(root_dir) / repo / ".github" / "workflows" / "auto-merge.yml"
+if not workflow_path.is_file():
+    print("missing-workflow\t.github/workflows/auto-merge.yml")
+    raise SystemExit(0)
+
+text = workflow_path.read_text(encoding="utf-8-sig", errors="replace")
+checks = [
+    (
+        "missing-workflow-run-trigger",
+        r"(?m)^\s{2}workflow_run:\s*$",
+        "auto-merge must run after unprivileged PR validation",
+    ),
+    (
+        "missing-test-workflow-gate",
+        r"(?ms)^\s{4}workflows:\s*\n\s{6}-\s*Test\s*$",
+        "workflow_run must follow Test",
+    ),
+    (
+        "missing-completed-gate",
+        r"(?ms)^\s{4}types:\s*\n\s{6}-\s*completed\s*$",
+        "workflow_run must wait for completion",
+    ),
+    (
+        "missing-shared-workflow",
+        r"(?m)^\s{4}uses:\s*tryAGI/workflows/\.github/workflows/auto-merge\.yml@main\s*$",
+        "caller must use the shared privileged workflow",
+    ),
+    (
+        "missing-secret-inheritance",
+        r"(?m)^\s{4}secrets:\s*inherit\s*$",
+        "caller must inherit the base-branch PERSONAL_TOKEN",
+    ),
+]
+
+for status, pattern, details in checks:
+    if not re.search(pattern, text):
+        print(f"{status}\t{details}")
+        raise SystemExit(0)
+
+print("ok\t")
+PY
+}
+
 repo_dependabot_nuget_info() {
   local repo="$1"
 
@@ -988,26 +1040,32 @@ write_settings_report() {
   local bootstrap_info
   local bootstrap_status
   local bootstrap_details
+  local auto_merge_workflow_info
+  local auto_merge_workflow_status
+  local auto_merge_workflow_details
   local dependabot_info
   local dependabot_status
   local dependabot_details
 
   mkdir -p "$OUT_DIR"
-  printf 'repo\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\tautosdk_bootstrap_status\tautosdk_bootstrap_details\tdependabot_nuget_status\tdependabot_nuget_details\n' > "$output_path"
+  printf 'repo\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\tautosdk_bootstrap_status\tautosdk_bootstrap_details\tdependabot_nuget_status\tdependabot_nuget_details\tauto_merge_workflow_status\tauto_merge_workflow_details\n' > "$output_path"
 
   while IFS= read -r repo; do
     api_target="$(repo_api_target "$repo")"
     bootstrap_info="$(repo_autosdk_bootstrap_info "$repo")"
     bootstrap_status="$(cut -f1 <<< "$bootstrap_info")"
     bootstrap_details="$(cut -f2- <<< "$bootstrap_info")"
+    auto_merge_workflow_info="$(repo_auto_merge_workflow_info "$repo")"
+    auto_merge_workflow_status="$(cut -f1 <<< "$auto_merge_workflow_info")"
+    auto_merge_workflow_details="$(cut -f2- <<< "$auto_merge_workflow_info")"
     dependabot_info="$(repo_dependabot_nuget_info "$repo")"
     dependabot_status="$(cut -f1 <<< "$dependabot_info")"
     dependabot_details="$(cut -f2- <<< "$dependabot_info")"
 
     if settings_row="$(gh_api_with_retries "repos/$api_target" --jq '[.name, .allow_auto_merge, .delete_branch_on_merge, .allow_update_branch] | @tsv')"; then
-      printf '%s\t%s\t%s\t%s\t%s\n' "$settings_row" "$bootstrap_status" "$bootstrap_details" "$dependabot_status" "$dependabot_details" >> "$output_path"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$settings_row" "$bootstrap_status" "$bootstrap_details" "$dependabot_status" "$dependabot_details" "$auto_merge_workflow_status" "$auto_merge_workflow_details" >> "$output_path"
     else
-      printf '%s\tunknown\tunknown\tunknown\t%s\t%s\t%s\t%s\n' "$repo" "$bootstrap_status" "$bootstrap_details" "$dependabot_status" "$dependabot_details" >> "$output_path"
+      printf '%s\tunknown\tunknown\tunknown\t%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$bootstrap_status" "$bootstrap_details" "$dependabot_status" "$dependabot_details" "$auto_merge_workflow_status" "$auto_merge_workflow_details" >> "$output_path"
     fi
   done < <(list_generated_sdk_repos)
 
@@ -1649,6 +1707,7 @@ non_compliant = sum(
     if row["allow_auto_merge"] != "true"
     or row["delete_branch_on_merge"] != "true"
     or row["allow_update_branch"] != "true"
+    or row.get("auto_merge_workflow_status") not in {"", "ok"}
 )
 bootstrap_gaps = [
     row
@@ -1931,6 +1990,7 @@ settings_non_compliant = sum(
     if row.get("allow_auto_merge") != "true"
     or row.get("delete_branch_on_merge") != "true"
     or row.get("allow_update_branch") != "true"
+    or row.get("auto_merge_workflow_status") not in {"", "ok"}
 )
 autosdk_bootstrap_gaps = sum(
     1
@@ -2156,7 +2216,7 @@ print_summary() {
   summary_path="$(write_summary_report "$mode_name" "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "" "" "" "$visibility_path")"
   repo_count="$(awk -F '\t' 'NR == 2 { print $4 }' "$summary_path")"
   settings_non_compliant="$(
-    awk -F '\t' 'NR > 1 && $1 != "" && ($2 != "true" || $3 != "true" || $4 != "true") { count++ } END { print count + 0 }' "$settings_path"
+    awk -F '\t' 'NR > 1 && $1 != "" && ($2 != "true" || $3 != "true" || $4 != "true" || ($9 != "ok" && $9 != "")) { count++ } END { print count + 0 }' "$settings_path"
   )"
   autosdk_bootstrap_gaps="$(
     awk -F '\t' 'NR > 1 && $1 != "" && $5 != "ok" && $5 != "" { count++ } END { print count + 0 }' "$settings_path"
@@ -2237,6 +2297,12 @@ print_summary() {
     echo
     echo "NuGet Dependabot policy gaps:"
     awk -F '\t' 'NR > 1 && $7 != "ok" && $7 != "" { printf "  %s\t%s\t%s\n", $1, $7, $8 }' "$settings_path"
+  fi
+
+  if awk -F '\t' 'NR > 1 && $9 != "ok" && $9 != "" { found=1 } END { exit found ? 0 : 1 }' "$settings_path"; then
+    echo
+    echo "Auto-merge workflow gaps:"
+    awk -F '\t' 'NR > 1 && $9 != "ok" && $9 != "" { printf "  %s\t%s\t%s\n", $1, $9, $10 }' "$settings_path"
   fi
 
   if [[ "$auto_update_onboarding_gaps" != "0" ]]; then
