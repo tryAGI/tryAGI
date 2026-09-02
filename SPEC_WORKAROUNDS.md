@@ -37,6 +37,7 @@ Most SDKs have clean `generate.sh` scripts. The following require workarounds du
 | LabelStudio | `yq`: apiKey→bearer conversion + `PrepareRequest` Token auth hook | Auth fix |
 | VoyageAI | `yq`: remove broken `Authorization: Bearer` apiKey scheme | Auth fix |
 | Vapi | `jq`: 7 fixes — LMNTVoice oneOf flatten (#206), operator/punctuation enums, discriminator mappings, 11labs rename, enum dedup, duplicate param rename | Enum/schema fix |
+| SmallestAI | `yq`: declare the documented `application/json` `{"url": ...}` STT request variant; `--required-path /waves/v1/stt/` guards the Fern spec selection. Handcrafted `asyncapi.yaml` for both WebSocket channels (no upstream AsyncAPI) | Schema injection / handcrafted spec |
 
 ## Post-Generation Fixes
 

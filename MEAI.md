@@ -329,6 +329,7 @@ Reference implementations:
 | `AssemblyAI/` | `ISpeechToTextClient` | 10.4.1 | Full |
 | `Gladia/` | `ISpeechToTextClient` | 10.4.1 | Full (upload + poll, 100+ languages, RawRepresentationFactory) |
 | `Cartesia/` | `ISpeechToTextClient` + `ITextToSpeechClient` | 10.4.1 | Full (synchronous STT, 115+ languages, word timestamps) / Full TTS for Sonic models with speed/emotion/language/output-format options |
+| `SmallestAI/` | `ISpeechToTextClient` | 10.9.0 | Full (Pulse pre-recorded + realtime WebSocket; speaker diarization and word timestamps surfaced via `AdditionalProperties`, keyed by `SmallestAISpeechToTextPropertyNames`). **Namespace conflict: yes** — the generated `SmallestAI.ISpeechToTextClient` sub-client interface collides by simple name, so use `using Meai = Microsoft.Extensions.AI;` |
 | `CSharpToJsonSchema/` | Tooling (`MeaiFunction`, `AsMeaiTools()`) | 10.4.1 | Framework/tooling support |
 | `LangChain.Providers/` | Bridge (`ChatClientModel` adapter) | 9.6.0 | Full bridge between MEAI <> LangChain |
 | `LangChain/` | Consumer | 10.4.1 | Uses MEAI in CLI |
