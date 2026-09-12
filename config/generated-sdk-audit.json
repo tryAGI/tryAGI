@@ -11,6 +11,20 @@
       "OpenAI"
     ]
   },
+  "dependency_auto_merge": {
+    "native_auto_merge_exceptions": [
+      {
+        "repo": "tryAGI/AutoSDK.Portal",
+        "strategy": "github-token-direct",
+        "reason": "GitHub Free for organizations does not provide native auto-merge for private repositories; Portal has no publish-on-main workflow to retrigger."
+      },
+      {
+        "repo": "tryAGI/PrivateJoi",
+        "strategy": "personal-token-direct",
+        "reason": "GitHub Free for organizations does not provide native auto-merge for private repositories; the repository-scoped token preserves downstream workflow triggering."
+      }
+    ]
+  },
   "operation_visibility": {
     "required_public_operations": [
       {

@@ -21,12 +21,13 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|dependency-auto-merge|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   sync       Fetch origin/main, safely fast-forward clean main checkouts, and verify workspace hygiene.
   summary    Write settings + workflow TSV reports and print a short summary.
   settings   Write generated-sdk-settings.tsv with auto-merge, bootstrap, and dependency-policy settings.
+  dependency-auto-merge Audit every active organization repository with Dependabot and write dependency-auto-merge.tsv.
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
   pull-requests Write workspace-open-pull-requests.tsv with every open PR in the GitHub organization.
@@ -158,7 +159,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      sync|summary|settings|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke)
+      sync|summary|settings|dependency-auto-merge|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke)
         MODE="$1"
         shift
         ;;
@@ -999,6 +1000,224 @@ for status, pattern, details in checks:
 
 print("ok\t")
 PY
+}
+
+dependency_auto_merge_exception_strategy() {
+  local api_target="$1"
+
+  jq -r --arg repo "$api_target" '
+    .dependency_auto_merge.native_auto_merge_exceptions[]?
+    | select(.repo == $repo)
+    | .strategy
+  ' "$CONFIG_PATH" | sed -n '1p'
+}
+
+dependency_auto_merge_workflow_info() {
+  local workflow_path="$1"
+
+  python3 - <<'PY' "$workflow_path"
+from pathlib import Path
+import re
+import sys
+
+workflow_path = Path(sys.argv[1])
+if not workflow_path.is_file():
+    print("missing-workflow\t\tfalse\t.github/workflows/auto-merge.yml is missing")
+    raise SystemExit(0)
+
+text = workflow_path.read_text(encoding="utf-8-sig", errors="replace")
+checks = [
+    ("missing-workflow-run-trigger", r"(?m)^\s{2}workflow_run:\s*$", "caller must run after unprivileged PR validation"),
+    ("missing-completed-gate", r"(?ms)^\s{4}types:\s*\n\s{6}-\s*completed\s*$", "workflow_run must wait for completion"),
+    ("missing-shared-workflow", r"(?m)^\s{4}uses:\s*tryAGI/workflows/\.github/workflows/auto-merge\.yml@main\s*$", "caller must use the shared privileged workflow"),
+    ("missing-secret-inheritance", r"(?m)^\s{4}secrets:\s*inherit\s*$", "caller must inherit its merge credential"),
+]
+
+fallback = "true" if re.search(
+    r"(?m)^\s{6}allow-github-token-fallback:\s*true\s*(?:#.*)?$",
+    text,
+) else "false"
+
+workflow_block = re.search(
+    r"(?ms)^\s{4}workflows:\s*\n(?P<items>(?:\s{6}-\s*[^\n]+\n?)+)",
+    text,
+)
+workflows = []
+if workflow_block:
+    workflows = [
+        item.strip().strip("'\"")
+        for item in re.findall(r"(?m)^\s{6}-\s*([^#\n]+?)\s*(?:#.*)?$", workflow_block.group("items"))
+    ]
+
+if not workflows:
+    print(f"missing-validation-workflow\t\t{fallback}\tworkflow_run must name at least one validation workflow")
+    raise SystemExit(0)
+
+for status, pattern, details in checks:
+    if not re.search(pattern, text):
+        print(f"{status}\t{','.join(workflows)}\t{fallback}\t{details}")
+        raise SystemExit(0)
+
+print(f"ok\t{','.join(workflows)}\t{fallback}\t")
+PY
+}
+
+write_dependency_auto_merge_report() {
+  local output_path="$OUT_DIR/dependency-auto-merge.tsv"
+  local inventory_path="$OUT_DIR/.dependency-auto-merge-repositories.tsv"
+  local cache_dir="$OUT_DIR/.dependency-auto-merge-workflows"
+  local api_target
+  local repo
+  local visibility
+  local default_branch
+  local allow_auto_merge
+  local delete_branch_on_merge
+  local allow_update_branch
+  local dependabot_content
+  local workflow_content
+  local workflow_path
+  local workflow_info
+  local caller_status
+  local validation_workflows
+  local github_token_fallback
+  local caller_details
+  local exception_strategy
+  local merge_strategy
+  local credential_status
+  local status
+  local details
+  local secrets_json
+  local settings_json
+
+  mkdir -p "$OUT_DIR" "$cache_dir"
+  gh_api_with_retries --paginate "orgs/$ORG/repos?per_page=100&type=all" --jq '
+    .[]
+    | select(.archived == false and .disabled == false)
+    | [.full_name, .name, .visibility, .default_branch, (.allow_auto_merge | tostring), (.delete_branch_on_merge | tostring), (.allow_update_branch | tostring)]
+    | @tsv
+  ' > "$inventory_path"
+
+  printf 'repo\tvisibility\tdefault_branch\tallow_auto_merge\tdelete_branch_on_merge\tallow_update_branch\tvalidation_workflows\tauto_merge_workflow_status\tmerge_strategy\tcredential_status\tstatus\tdetails\n' > "$output_path"
+
+  while IFS=$'\t' read -r api_target repo visibility default_branch allow_auto_merge delete_branch_on_merge allow_update_branch; do
+    if [[ -n "$REPO_FILTER" ]] && ! [[ "$repo" =~ $REPO_FILTER ]]; then
+      continue
+    fi
+
+    if ! dependabot_content="$(gh_api_with_retries --method GET "repos/$api_target/contents/.github/dependabot.yml" -f "ref=$default_branch" --jq '.content' 2>/dev/null)"; then
+      continue
+    fi
+    [[ -n "$dependabot_content" ]] || continue
+
+    if ! settings_json="$(gh_api_with_retries "repos/$api_target" 2>/dev/null)"; then
+      printf '%s\t%s\t%s\tunknown\tunknown\tunknown\t\tapi-error\tunconfigured\tnone\tapi-error\tcurrent repository settings could not be read\n' \
+        "$api_target" "$visibility" "$default_branch" >> "$output_path"
+      continue
+    fi
+    visibility="$(jq -r '.visibility' <<< "$settings_json")"
+    default_branch="$(jq -r '.default_branch' <<< "$settings_json")"
+    allow_auto_merge="$(jq -r '.allow_auto_merge' <<< "$settings_json")"
+    delete_branch_on_merge="$(jq -r '.delete_branch_on_merge' <<< "$settings_json")"
+    allow_update_branch="$(jq -r '.allow_update_branch' <<< "$settings_json")"
+
+    workflow_path="$cache_dir/$repo.yml"
+    if workflow_content="$(gh_api_with_retries --method GET "repos/$api_target/contents/.github/workflows/auto-merge.yml" -f "ref=$default_branch" --jq '.content' 2>/dev/null)"; then
+      printf '%s' "$workflow_content" | base64 --decode > "$workflow_path"
+    else
+      rm -f "$workflow_path"
+    fi
+
+    workflow_info="$(dependency_auto_merge_workflow_info "$workflow_path")"
+    caller_status="$(cut -f1 <<< "$workflow_info")"
+    validation_workflows="$(cut -f2 <<< "$workflow_info")"
+    github_token_fallback="$(cut -f3 <<< "$workflow_info")"
+    caller_details="$(cut -f4- <<< "$workflow_info")"
+    exception_strategy="$(dependency_auto_merge_exception_strategy "$api_target")"
+    merge_strategy="native-auto-merge"
+    credential_status="inherited-personal-token"
+    status="ok"
+    details=""
+
+    if [[ "$allow_auto_merge" != "true" ]]; then
+      merge_strategy="$exception_strategy"
+      case "$exception_strategy" in
+        github-token-direct)
+          credential_status="explicit-github-token-fallback"
+          if [[ "$github_token_fallback" != "true" ]]; then
+            status="invalid-exception"
+            details="configured GitHub token fallback is not enabled by the caller"
+          fi
+          ;;
+        personal-token-direct)
+          credential_status="missing-personal-token"
+          if secrets_json="$(gh_api_with_retries "repos/$api_target/actions/secrets?per_page=100" 2>/dev/null)" &&
+              jq -e '.secrets[]? | select(.name == "PERSONAL_TOKEN")' <<< "$secrets_json" >/dev/null; then
+            credential_status="repository-personal-token"
+          else
+            status="missing-credential"
+            details="PERSONAL_TOKEN metadata was not found for the configured direct-merge strategy"
+          fi
+          if [[ "$github_token_fallback" == "true" ]]; then
+            status="invalid-exception"
+            details="personal-token strategy must not enable the GitHub token fallback"
+          fi
+          ;;
+        *)
+          merge_strategy="unconfigured"
+          credential_status="none"
+          status="native-auto-merge-disabled"
+          details="allow_auto_merge is false and no reviewed exception strategy is configured"
+          ;;
+      esac
+    elif [[ -n "$exception_strategy" ]]; then
+      status="stale-exception"
+      details="native auto-merge is enabled; remove the obsolete exception"
+    fi
+
+    if [[ "$caller_status" != "ok" ]]; then
+      status="$caller_status"
+      details="$caller_details"
+    elif [[ "$delete_branch_on_merge" != "true" ]]; then
+      status="delete-branch-disabled"
+      details="delete_branch_on_merge must be true"
+    elif [[ "$allow_update_branch" != "true" ]]; then
+      status="update-branch-disabled"
+      details="allow_update_branch must be true"
+    elif [[ "$default_branch" != "main" ]]; then
+      status="unexpected-default-branch"
+      details="shared auto-merge policy authorizes only pull requests targeting main"
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$api_target" "$visibility" "$default_branch" "$allow_auto_merge" "$delete_branch_on_merge" \
+      "$allow_update_branch" "$validation_workflows" "$caller_status" "$merge_strategy" \
+      "$credential_status" "$status" "$details" >> "$output_path"
+  done < "$inventory_path"
+
+  printf '%s\n' "$output_path"
+}
+
+print_dependency_auto_merge_summary() {
+  local report_path="$1"
+  local repo_count
+  local compliant_count
+  local exception_count
+  local gap_count
+
+  repo_count="$(awk -F '\t' 'NR > 1 { count++ } END { print count + 0 }' "$report_path")"
+  compliant_count="$(awk -F '\t' 'NR > 1 && $11 == "ok" { count++ } END { print count + 0 }' "$report_path")"
+  exception_count="$(awk -F '\t' 'NR > 1 && $11 == "ok" && $9 != "native-auto-merge" { count++ } END { print count + 0 }' "$report_path")"
+  gap_count="$((repo_count - compliant_count))"
+
+  printf 'Dependency auto-merge report: %s\n' "$report_path"
+  printf 'Dependabot-enabled repositories: %s\n' "$repo_count"
+  printf 'Compliant repositories: %s\n' "$compliant_count"
+  printf 'Reviewed native-auto-merge exceptions: %s\n' "$exception_count"
+  printf 'Repositories requiring attention: %s\n' "$gap_count"
+
+  if [[ "$gap_count" != "0" ]]; then
+    awk -F '\t' 'NR > 1 && $11 != "ok" { printf "  %s\t%s\t%s\n", $1, $11, $12 }' "$report_path"
+  fi
 }
 
 repo_dependabot_nuget_info() {
@@ -2346,6 +2565,7 @@ main() {
   local sync_path
   local hygiene_path
   local settings_path
+  local dependency_auto_merge_path
   local workflows_path
   local issues_path
   local pull_requests_path
@@ -2387,7 +2607,7 @@ main() {
     fi
   fi
 
-  if [[ "$MODE" != "sync" && "$MODE" != "repos" ]]; then
+  if [[ "$MODE" != "sync" && "$MODE" != "repos" && "$MODE" != "dependency-auto-merge" ]]; then
     require_ready_sync_report
   fi
 
@@ -2409,6 +2629,13 @@ main() {
       settings_path="$(write_settings_report)"
       write_summary_report "$MODE" "$settings_path" >/dev/null
       printf '%s\n' "$settings_path"
+      ;;
+    dependency-auto-merge)
+      dependency_auto_merge_path="$(write_dependency_auto_merge_report)"
+      print_dependency_auto_merge_summary "$dependency_auto_merge_path"
+      if awk -F '\t' 'NR > 1 && $11 != "ok" { found = 1 } END { exit found ? 0 : 1 }' "$dependency_auto_merge_path"; then
+        exit 2
+      fi
       ;;
     workflows)
       workflows_path="$(write_workflows_report)"

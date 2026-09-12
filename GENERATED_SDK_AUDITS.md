@@ -13,6 +13,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
   - `allow_auto_merge`
   - `delete_branch_on_merge`
   - `allow_update_branch`
+- Organization-wide Dependabot auto-merge policy, including secure `workflow_run` callers and reviewed private-repository credential strategies
 - Latest GitHub Actions runs for:
   - `.github/workflows/auto-update.yml`
   - `.github/workflows/dotnet.yml`
@@ -41,6 +42,9 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 
 # Only repo settings
 ./scripts/audit-generated-sdks.sh settings
+
+# Every Dependabot repository's auto-merge caller, settings, and credential strategy
+./scripts/audit-generated-sdks.sh dependency-auto-merge
 
 # Only latest workflow runs
 ./scripts/audit-generated-sdks.sh workflows
@@ -115,6 +119,13 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Includes latest run id, conclusion, timestamp, branch, URL, plus `repo_created_at` and `repo_age_days`
   - `repo_created_at` and `repo_age_days` are populated for `new-repo-no-runs` and mature `no-runs` rows to explain the classification
   - `new-repo-no-runs` marks a new repo that still needs its first workflow run during onboarding
+- `dependency-auto-merge.tsv`
+  - Run `./scripts/audit-generated-sdks.sh dependency-auto-merge` to discover every active repository in the organization whose default branch contains `.github/dependabot.yml`
+  - This organization-remote audit does not depend on a synchronized local workspace and can run while unrelated repositories contain in-progress work
+  - Requires the shared privileged caller to use `workflow_run`, wait for `completed`, inherit secrets, and name at least one validation workflow
+  - Requires `delete_branch_on_merge=true`, `allow_update_branch=true`, and a `main` default branch
+  - Requires native auto-merge unless a reviewed private-repository strategy is declared in `dependency_auto_merge.native_auto_merge_exceptions`
+  - Verifies that `github-token-direct` callers opt in explicitly and that `personal-token-direct` repositories expose `PERSONAL_TOKEN` secret metadata
 - `generated-sdk-open-issues.tsv`
   - One row per open issue
   - Includes repo, issue number, labels, URL, and a title field explicitly named `untrusted_external_title`
@@ -185,6 +196,7 @@ The tracked config file currently controls:
 - `workflows.new_repo_days`
 - `signals.run_limit`
 - `signals.ignored_skip_signal_repos`
+- `dependency_auto_merge.native_auto_merge_exceptions`
 - `operation_visibility.required_public_operations`
 - `workspace.allowed_ahead_repositories`
 - `workspace.allowed_no_upstream_repositories`
@@ -195,7 +207,7 @@ Add new keys there when the audit grows. The script treats the config as the def
 ## How to read failures
 
 - `allow_auto_merge=false`
-  - Bot PRs cannot be queued for auto-merge
+  - Bot PRs cannot be queued for native auto-merge; the organization-wide dependency audit accepts only an explicit, verified direct-merge exception for private repositories where the current GitHub plan does not expose native auto-merge
 - `delete_branch_on_merge=false`
   - Bot branches will accumulate after merges
 - `allow_update_branch=false`
