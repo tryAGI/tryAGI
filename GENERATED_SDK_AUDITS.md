@@ -37,7 +37,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 # Synchronize repositories before every audit pass
 ./scripts/audit-generated-sdks.sh sync
 
-# Full summary plus TSV outputs in /tmp/tryagi-sdk-audit
+# Full generated-SDK summary plus the organization-wide dependency auto-merge gate
 ./scripts/audit-generated-sdks.sh summary
 
 # Only repo settings
@@ -79,7 +79,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 # No-cost smoke tests against explicitly allowlisted local containers
 ./scripts/audit-generated-sdks.sh local-smoke
 
-# All reports plus daily text briefing
+# All reports plus daily text briefing and the organization-wide dependency auto-merge gate
 ./scripts/audit-generated-sdks.sh briefing
 
 # Optional: suppress skipped/inconclusive noise from known noisy repos in summaries

@@ -2687,7 +2687,12 @@ main() {
       settings_path="$(write_settings_report)"
       workflows_path="$(write_workflows_report)"
       visibility_path="$(write_operation_visibility_report)"
+      dependency_auto_merge_path="$(write_dependency_auto_merge_report)"
       print_summary "$MODE" "$settings_path" "$workflows_path" "" "" "$visibility_path"
+      print_dependency_auto_merge_summary "$dependency_auto_merge_path"
+      if awk -F '\t' 'NR > 1 && $11 != "ok" { found = 1 } END { exit found ? 0 : 1 }' "$dependency_auto_merge_path"; then
+        exit 2
+      fi
       ;;
     briefing)
       settings_path="$(write_settings_report)"
@@ -2697,12 +2702,17 @@ main() {
       signals_path="$(write_signals_report)"
       representations_path="$(write_representations_report)"
       visibility_path="$(write_operation_visibility_report)"
+      dependency_auto_merge_path="$(write_dependency_auto_merge_report)"
       briefing_path="$OUT_DIR/daily-briefing.txt"
       render_briefing_text "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$representations_path" "$visibility_path" "$briefing_path"
       print_summary "$MODE" "$settings_path" "$workflows_path" "$issues_path" "$signals_path" "$visibility_path"
       print_representation_summary "$representations_path"
+      print_dependency_auto_merge_summary "$dependency_auto_merge_path"
       printf 'Open pull requests report: %s\n' "$pull_requests_path"
       printf 'Briefing text: %s\n' "$briefing_path"
+      if awk -F '\t' 'NR > 1 && $11 != "ok" { found = 1 } END { exit found ? 0 : 1 }' "$dependency_auto_merge_path"; then
+        exit 2
+      fi
       ;;
   esac
 }
