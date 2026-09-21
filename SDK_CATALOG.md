@@ -61,7 +61,7 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `AwsBedrock/`, `EdenAI/`, `Martian/`, `OpenRouter/`, `Portkey/`, `TencentTokenHub/`
 
 **Observability / Evaluation:**
-`Helicone/`, `Langfuse/`, `Opik/`, `Phoenix/`, `Weave/`
+`Helicone/`, `Langfuse/`, `Opik/`, `Phoenix/`, `TypeSafeAI/`, `Weave/`
 
 **AI Memory / Agent Infrastructure:**
 `Botpress/`, `CursorAgents/`, `Dust/`, `E2B/`, `Julep/`, `Letta/`, `Mem0/`, `Zep/`
@@ -70,7 +70,9 @@ All follow the same architecture pattern (see "Common SDK Structure" in [CLAUDE.
 `Browserbase/`
 
 **AI Security / Guardrails:**
-`Guardrails/`, `Lakera/`
+`Guardrails/`, `Lakera/`, `TypeSafeAI/`
+
+`TypeSafeAI/` combines an AutoSDK-generated OpenAPI transport with handwritten typed Noul/choice/score APIs, calibrated routing, guardrail middleware, and Microsoft.Extensions.AI evaluation support.
 
 **Content Moderation:**
 `ModerationAPI/`, `Sightengine/`
