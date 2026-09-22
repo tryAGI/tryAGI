@@ -284,12 +284,19 @@ for project in projects:
     project_path = repo / project
     project_dir = project_path.parent
     text = project_path.read_text(encoding="utf-8", errors="ignore")
+    license_metadata = text
+    for directory in (project_dir, *project_dir.parents):
+        props = directory / "Directory.Build.props"
+        if props.is_file():
+            license_metadata += props.read_text(encoding="utf-8", errors="ignore")
+        if directory == repo:
+            break
     gaps = []
     if not (project_dir / "README.md").is_file():
         gaps.append("missing-readme")
     if "<PackageReadmeFile>README.md</PackageReadmeFile>" not in text:
         gaps.append("missing-package-readme")
-    if "<PackageLicenseExpression>" not in text and "<PackageLicenseFile>" not in text:
+    if "<PackageLicenseExpression>" not in license_metadata and "<PackageLicenseFile>" not in license_metadata:
         gaps.append("missing-package-license")
     if '<None Include="README.md" Pack="true"' not in text:
         gaps.append("missing-readme-pack-item")
