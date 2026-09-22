@@ -289,6 +289,8 @@ for project in projects:
         gaps.append("missing-readme")
     if "<PackageReadmeFile>README.md</PackageReadmeFile>" not in text:
         gaps.append("missing-package-readme")
+    if "<PackageLicenseExpression>" not in text and "<PackageLicenseFile>" not in text:
+        gaps.append("missing-package-license")
     if '<None Include="README.md" Pack="true"' not in text:
         gaps.append("missing-readme-pack-item")
     if gaps:
