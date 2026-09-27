@@ -104,6 +104,7 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Covers every Git repository directly inside the workspace, plus the workspace repository itself
   - Blocks staged, modified, or untracked paths, detached HEADs, tracked secret-bearing `.env` filenames, unpublished commits, missing upstreams, divergence, and branches behind their tracking refs
   - Records upstream, ahead/behind counts, and publication state; intentional exceptions require a reason in the tracked workspace policy
+  - Repositories listed in `retired_archived_sdk_repositories` are excluded from active generated SDK checks only while GitHub confirms they remain archived. They remain in workspace hygiene: dirty work, detached HEAD, tracked environment files, and behind/diverged branches still block sync. A clean local branch may be ahead of the read-only remote, with the configured reason recorded as an allowed publication exception.
   - Allows templates named `.env.example`, `.env.sample`, or `.env.template`
 - `generated-sdk-settings.tsv`
   - One row per detected generated SDK repo

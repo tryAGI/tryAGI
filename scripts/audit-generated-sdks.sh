@@ -200,6 +200,10 @@ list_generated_sdk_repos() {
       continue
     fi
 
+    if retired_archived_sdk_reason "$repo_name" >/dev/null; then
+      continue
+    fi
+
     if compgen -G "$repo_dir/src/libs/*/generate.sh" >/dev/null; then
       printf '%s\n' "$repo_name"
     fi
@@ -243,6 +247,9 @@ workspace_publication_exception_reason() {
 
   case "$exception_kind" in
     ahead)
+      if retired_archived_sdk_reason "$repo"; then
+        return 0
+      fi
       config_key="allowed_ahead_repositories"
       ;;
     no-upstream)
@@ -256,6 +263,22 @@ workspace_publication_exception_reason() {
   jq -r --arg repo "$repo" --arg config_key "$config_key" '
     .workspace[$config_key][]? | select(.repo == $repo) | .reason
   ' "$CONFIG_PATH" | sed -n '1p'
+}
+
+retired_archived_sdk_reason() {
+  local repo="$1"
+  local reason
+  local archived
+
+  reason="$(jq -r --arg repo "$repo" \
+    '.retired_archived_sdk_repositories[]? | select(.repo == $repo) | .reason' \
+    "$CONFIG_PATH" | sed -n '1p')"
+  [[ -n "$reason" ]] || return 1
+
+  archived="$(gh_api_with_retries "repos/$(repo_api_target "$repo")" --jq '.archived' || true)"
+  [[ "$archived" == "true" ]] || return 1
+
+  printf '%s\n' "$reason"
 }
 
 repo_api_target() {

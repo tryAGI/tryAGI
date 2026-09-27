@@ -1,5 +1,11 @@
 {
   "issue_limit": 100,
+  "retired_archived_sdk_repositories": [
+    {
+      "repo": "LMNT",
+      "reason": "LMNT is archived and no longer maintained as an active generated SDK; preserve clean local work without requiring publication to a read-only remote."
+    }
+  ],
   "workflows": {
     "auto_update_file": "auto-update.yml",
     "publish_file": "dotnet.yml",
