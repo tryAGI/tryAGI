@@ -945,6 +945,7 @@ repo_autosdk_bootstrap_info() {
 
   python3 - <<'PY' "$ROOT_DIR" "$repo"
 from pathlib import Path
+import json
 import re
 import sys
 
@@ -960,11 +961,22 @@ pattern = re.compile(
     r"dotnet\s+tool\s+(install|update)\s+--global\s+autosdk\.cli\b",
     re.IGNORECASE | re.DOTALL,
 )
+manifest_path = repo_dir / ".config" / "dotnet-tools.json"
+try:
+    tools = json.loads(manifest_path.read_text(encoding="utf-8")).get("tools", {})
+except (FileNotFoundError, json.JSONDecodeError):
+    tools = {}
+local_autosdk = "autosdk.cli" in tools and "autosdk" in tools["autosdk.cli"].get("commands", [])
 missing = []
 
 for script in scripts:
     text = script.read_text(encoding="utf-8", errors="replace")
-    if not pattern.search(text):
+    local_restore = (
+        local_autosdk
+        and re.search(r"dotnet\s+tool\s+restore\b", text)
+        and re.search(r"dotnet\s+tool\s+run\s+autosdk\b", text)
+    )
+    if not pattern.search(text) and not local_restore:
         missing.append(str(script.relative_to(repo_dir)))
 
 status = "ok" if not missing else "missing-bootstrap"
