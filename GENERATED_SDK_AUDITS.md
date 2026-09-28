@@ -147,7 +147,9 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Includes solution path, status, exit code, duration, and the local build log path
 - `generated-sdk-local-trims.tsv`
   - One row per detected generated SDK project
-  - Includes project path, status, exit code, duration, and the local trim log path
+  - Includes project path, status, exit code, duration, local trim log path, verified repository HEAD, cache status, tool versions, runtime, and log digest
+  - Reuses a previous success only when the project and repository HEAD match, AutoSDK and .NET versions and runtime match, and the successful log digest still verifies. Failed or incomplete checks run again. Changes during a check fail that row.
+  - Set `TRYAGI_LOCAL_TRIM_FORCE=1` to run every trim again. The report is replaced only after all rows finish, so an interrupted run cannot turn a partial report into a cache source.
 - `generated-sdk-local-smoke.tsv`
   - Runs only repositories allowlisted under `smoke.local_container_repositories`
   - Forces local Testcontainers environments and never targets a paid provider endpoint

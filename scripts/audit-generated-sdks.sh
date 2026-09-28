@@ -57,6 +57,7 @@ Environment:
   TRYAGI_GH_API_RETRIES             How many times to retry transient GitHub API calls. Default: 3
   TRYAGI_GH_API_RETRY_DELAY_SECONDS Delay between GitHub API retry attempts. Default: 2
   TRYAGI_SYNC_MAX_AGE_SECONDS       Maximum accepted age for a sync snapshot. Default: 21600 (6 hours)
+  TRYAGI_LOCAL_TRIM_FORCE           Set to 1 to rerun trims even when the verified HEAD cache matches.
 EOF
 }
 
@@ -1663,22 +1664,75 @@ write_local_builds_report() {
   printf '%s\n' "$output_path"
 }
 
+trim_cache_hit() {
+  python3 - "$@" <<'PY'
+import csv
+import hashlib
+from pathlib import Path
+import sys
+
+report, repo, project, head, log, autosdk_version, dotnet_version, runtime = sys.argv[1:]
+if not Path(report).is_file() or not Path(log).is_file():
+    raise SystemExit(1)
+
+with open(report, encoding="utf-8", newline="") as stream:
+    rows = csv.DictReader(stream, delimiter="\t")
+    found = next((row for row in rows if row.get("repo") == repo and row.get("project") == project), None)
+
+if not found or found.get("status") != "success" or found.get("exit_code") != "0":
+    raise SystemExit(1)
+if found.get("head_sha") != head:
+    raise SystemExit(1)
+if found.get("log_path") != log:
+    raise SystemExit(1)
+for field, current in (("autosdk_version", autosdk_version), ("dotnet_version", dotnet_version), ("runtime", runtime)):
+    if found.get(field) != current:
+        raise SystemExit(1)
+log_bytes = Path(log).read_bytes()
+if found.get("log_sha256") != hashlib.sha256(log_bytes).hexdigest():
+    raise SystemExit(1)
+if b"No trimming warnings found. The project is trimming-compatible." not in log_bytes:
+    raise SystemExit(1)
+PY
+}
+
+trim_log_digest() {
+  python3 - "$1" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+}
+
 write_local_trims_report() {
   local output_path="$OUT_DIR/generated-sdk-local-trims.tsv"
   local log_dir="$OUT_DIR/local-trim-logs"
+  local output_temp
+  local autosdk_version
+  local dotnet_version
+  local runtime
   local repo
   local project_path
   local relative_project_path
   local log_path
+  local head_sha
   local started_at
   local ended_at
   local duration_seconds
   local exit_code
   local status
+  local cache_status
+  local log_sha256
   local project_count
 
   mkdir -p "$OUT_DIR" "$log_dir"
-  printf 'repo\tproject\tstatus\texit_code\tduration_seconds\tlog_path\n' > "$output_path"
+  output_temp="$(mktemp "$OUT_DIR/.generated-sdk-local-trims.XXXXXX")"
+  autosdk_version="$(autosdk --version | sed -n '1p')"
+  dotnet_version="$(dotnet --version | sed -n '1p')"
+  runtime="$(uname -s)-$(uname -m)"
+  printf 'repo\tproject\tstatus\texit_code\tduration_seconds\tlog_path\thead_sha\tcache_status\tautosdk_version\tdotnet_version\truntime\tlog_sha256\n' > "$output_temp"
 
   while IFS= read -r repo; do
     project_count=0
@@ -1686,29 +1740,47 @@ write_local_trims_report() {
       project_count=$((project_count + 1))
       relative_project_path="${project_path#"$ROOT_DIR/$repo/"}"
       log_path="$log_dir/$repo-${project_count}.log"
-      started_at="$(date +%s)"
-
-      set +e
-      autosdk trim "$project_path" > "$log_path" 2>&1
-      exit_code="$?"
-      set -e
-
-      ended_at="$(date +%s)"
-      duration_seconds="$((ended_at - started_at))"
-      status="success"
-      if [[ "$exit_code" != "0" ]]; then
-        status="failed"
+      head_sha="$(git -C "$ROOT_DIR/$repo" rev-parse HEAD)"
+      if [[ "${TRYAGI_LOCAL_TRIM_FORCE:-0}" != "1" ]] \
+        && trim_cache_hit "$output_path" "$repo" "$relative_project_path" "$head_sha" "$log_path" "$autosdk_version" "$dotnet_version" "$runtime"; then
+        status="success"
+        exit_code="0"
+        duration_seconds=""
+        cache_status="reused"
+      else
+        started_at="$(date +%s)"
+        set +e
+        autosdk trim "$project_path" > "$log_path" 2>&1
+        exit_code="$?"
+        set -e
+        ended_at="$(date +%s)"
+        duration_seconds="$((ended_at - started_at))"
+        status="success"
+        if [[ "$exit_code" != "0" ]] \
+          || ! grep -Fq 'No trimming warnings found. The project is trimming-compatible.' "$log_path"; then
+          status="failed"
+        fi
+        cache_status="fresh"
       fi
 
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "$relative_project_path" "$status" "$exit_code" "$duration_seconds" "$log_path" >> "$output_path"
+      if [[ "$(git -C "$ROOT_DIR/$repo" rev-parse HEAD)" != "$head_sha" ]]; then
+        status="failed"
+        cache_status="head-changed"
+      fi
+      log_sha256="$(trim_log_digest "$log_path")"
+
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$repo" "$relative_project_path" "$status" "$exit_code" "$duration_seconds" "$log_path" \
+        "$head_sha" "$cache_status" "$autosdk_version" "$dotnet_version" "$runtime" "$log_sha256" >> "$output_temp"
     done < <(find_generated_project_paths "$repo")
 
     if [[ "$project_count" == "0" ]]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "" "missing-project" "" "" "" >> "$output_path"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$repo" "" "missing-project" "" "" "" "" "" "$autosdk_version" "$dotnet_version" "$runtime" "" >> "$output_temp"
     fi
   done < <(list_generated_sdk_repos)
 
+  mv "$output_temp" "$output_path"
   printf '%s\n' "$output_path"
 }
 
