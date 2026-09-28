@@ -41,10 +41,12 @@ dotnet() { printf '10.0-test\n'; }
 write_local_trims_report >/dev/null
 [[ "$(cat "$test_root/calls")" == "1" ]]
 grep -q $'Fixture\t.*\tsuccess\t0\t.*\tfresh\t' "$OUT_DIR/generated-sdk-local-trims.tsv"
+[[ "$(print_local_trim_summary "$OUT_DIR/generated-sdk-local-trims.tsv" | grep -F 'Local trims run:')" == "Local trims run: 1" ]]
 
 write_local_trims_report >/dev/null
 [[ "$(cat "$test_root/calls")" == "1" ]]
 grep -q $'Fixture\t.*\tsuccess\t0\t.*\treused\t' "$OUT_DIR/generated-sdk-local-trims.tsv"
+[[ "$(print_local_trim_summary "$OUT_DIR/generated-sdk-local-trims.tsv" | grep -F 'Local trims reused from cache:')" == "Local trims reused from cache: 1" ]]
 
 printf '\n<!-- new HEAD -->\n' >> "$ROOT_DIR/Fixture/src/libs/Fixture/Fixture.csproj"
 git -C "$ROOT_DIR/Fixture" add src/libs/Fixture/Fixture.csproj

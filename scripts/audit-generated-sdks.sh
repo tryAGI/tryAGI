@@ -1765,7 +1765,7 @@ write_local_trims_report() {
 
       if [[ "$(git -C "$ROOT_DIR/$repo" rev-parse HEAD)" != "$head_sha" ]]; then
         status="failed"
-        cache_status="head-changed"
+        cache_status="${cache_status}-head-changed"
       fi
       log_sha256="$(trim_log_digest "$log_path")"
 
@@ -1978,6 +1978,12 @@ print_local_trim_summary() {
   local local_trims_path="$1"
 
   printf 'Local trim report: %s\n' "$local_trims_path"
+  printf 'Local trims reused from cache: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $8 ~ /^reused/ { count++ } END { print count + 0 }' "$local_trims_path"
+  )"
+  printf 'Local trims run: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $8 ~ /^fresh/ { count++ } END { print count + 0 }' "$local_trims_path"
+  )"
   printf 'Local trim successes: %s\n' "$(
     awk -F '\t' 'NR > 1 && $3 == "success" { count++ } END { print count + 0 }' "$local_trims_path"
   )"
