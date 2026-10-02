@@ -105,6 +105,7 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Blocks staged, modified, or untracked paths, detached HEADs, tracked secret-bearing `.env` filenames, unpublished commits, missing upstreams, divergence, and branches behind their tracking refs
   - Records upstream, ahead/behind counts, and publication state; intentional exceptions require a reason in the tracked workspace policy
   - Repositories listed in `retired_archived_sdk_repositories` are excluded from active generated SDK checks only while GitHub confirms they remain archived. They remain in workspace hygiene: dirty work, detached HEAD, tracked environment files, and behind/diverged branches still block sync. A clean local branch may be ahead of the read-only remote, with the configured reason recorded as an allowed publication exception.
+  - `archived-dependabot.tsv` checks every archived organization repository for `.github/dependabot.yml` or `.yaml` and open Dependabot PRs. Any finding or API error blocks sync; run `archived-dependabot` for the same remote check without a local sync prerequisite.
   - Allows templates named `.env.example`, `.env.sample`, or `.env.template`
 - `generated-sdk-settings.tsv`
   - One row per detected generated SDK repo
@@ -127,6 +128,8 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Requires `delete_branch_on_merge=true`, `allow_update_branch=true`, and a `main` default branch
   - Requires native auto-merge unless a reviewed private-repository strategy is declared in `dependency_auto_merge.native_auto_merge_exceptions`
   - Verifies that `github-token-direct` callers opt in explicitly and that `personal-token-direct` repositories expose `PERSONAL_TOKEN` secret metadata
+- `generated-sdk-local-trims.tsv`
+  - Successful project rows are cached by repository HEAD, AutoSDK and .NET versions, runtime, and log digest. Each finished project also gets an atomic checkpoint under `local-trim-checkpoints/`, allowing an interrupted fleet run to resume without repeating completed trims.
 - `generated-sdk-open-issues.tsv`
   - One row per open issue
   - Includes repo, issue number, labels, URL, and a title field explicitly named `untrusted_external_title`

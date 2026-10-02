@@ -43,6 +43,12 @@ write_local_trims_report >/dev/null
 grep -q $'Fixture\t.*\tsuccess\t0\t.*\tfresh\t' "$OUT_DIR/generated-sdk-local-trims.tsv"
 [[ "$(print_local_trim_summary "$OUT_DIR/generated-sdk-local-trims.tsv" | grep -F 'Local trims run:')" == "Local trims run: 1" ]]
 
+[[ -f "$OUT_DIR/local-trim-checkpoints/Fixture-1.tsv" ]]
+rm "$OUT_DIR/generated-sdk-local-trims.tsv"
+write_local_trims_report >/dev/null
+[[ "$(cat "$test_root/calls")" == "1" ]]
+grep -q $'Fixture\t.*\tsuccess\t0\t.*\treused\t' "$OUT_DIR/generated-sdk-local-trims.tsv"
+
 write_local_trims_report >/dev/null
 [[ "$(cat "$test_root/calls")" == "1" ]]
 grep -q $'Fixture\t.*\tsuccess\t0\t.*\treused\t' "$OUT_DIR/generated-sdk-local-trims.tsv"

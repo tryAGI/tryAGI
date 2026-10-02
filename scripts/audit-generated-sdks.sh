@@ -21,12 +21,13 @@ REPO_FILTER=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|dependency-auto-merge|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
+Usage: ./scripts/audit-generated-sdks.sh [sync|summary|settings|archived-dependabot|dependency-auto-merge|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke] [--repo REGEX] [--out-dir PATH] [--config PATH]
 
 Modes:
   sync       Fetch origin/main, safely fast-forward clean main checkouts, and verify workspace hygiene.
   summary    Write settings + workflow TSV reports and print a short summary.
   settings   Write generated-sdk-settings.tsv with auto-merge, bootstrap, and dependency-policy settings.
+  archived-dependabot Flag archived repositories with Dependabot config or open Dependabot PRs.
   dependency-auto-merge Audit every active organization repository with Dependabot and write dependency-auto-merge.tsv.
   workflows  Write generated-sdk-workflows.tsv with latest auto-update and Publish runs.
   issues     Write generated-sdk-open-issues.tsv with open issues for generated SDK repos.
@@ -160,7 +161,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      sync|summary|settings|dependency-auto-merge|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke)
+      sync|summary|settings|archived-dependabot|dependency-auto-merge|workflows|issues|pull-requests|signals|visibility|representations|briefing|repos|local-builds|local-trims|local-smoke)
         MODE="$1"
         shift
         ;;
@@ -652,6 +653,7 @@ print_sync_summary() {
 require_ready_sync_report() {
   local sync_path="$OUT_DIR/generated-sdk-sync.tsv"
   local hygiene_path="$OUT_DIR/workspace-repository-hygiene.tsv"
+  local archived_dependabot_path="$OUT_DIR/archived-dependabot.tsv"
   local repo
   local repo_dir
   local row
@@ -683,6 +685,11 @@ PY
   if sync_report_has_failures "$sync_path"; then
     echo "Repository sync report contains unsafe or missing checkouts: $sync_path" >&2
     print_sync_summary "$sync_path" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "$archived_dependabot_path" ]] || archived_dependabot_has_failures "$archived_dependabot_path"; then
+    echo "Archived repository Dependabot guard is missing or has violations: $archived_dependabot_path" >&2
     exit 1
   fi
 
@@ -1096,6 +1103,60 @@ for status, pattern, details in checks:
 
 print(f"ok\t{','.join(workflows)}\t{fallback}\t")
 PY
+}
+
+write_archived_dependabot_report() {
+  local output_path="$OUT_DIR/archived-dependabot.tsv"
+  local inventory_path="$OUT_DIR/.archived-dependabot-repositories.tsv"
+  local api_target repo default_branch tree_json bot_prs config_paths status details
+
+  mkdir -p "$OUT_DIR"
+  printf 'repo\tdefault_branch\tdependabot_configs\topen_bot_prs\tstatus\tdetails\n' > "$output_path"
+  if ! gh_api_with_retries --paginate "orgs/$ORG/repos?per_page=100&type=all" --jq \
+      '.[] | select(.archived == true) | [.full_name, .name, .default_branch] | @tsv' > "$inventory_path"; then
+    printf '__inventory__\t\t\t\tapi-error\tarchived repository inventory could not be read\n' >> "$output_path"
+    printf '%s\n' "$output_path"
+    return
+  fi
+
+  while IFS=$'\t' read -r api_target repo default_branch; do
+    if [[ -n "$REPO_FILTER" ]] && ! [[ "$repo" =~ $REPO_FILTER ]]; then
+      continue
+    fi
+
+    config_paths=""
+    bot_prs=""
+    status="ok"
+    details=""
+    if ! tree_json="$(gh_api_with_retries "repos/$api_target/git/trees/$default_branch?recursive=1")"; then
+      status="api-error"
+      details="default branch tree could not be read"
+    else
+      config_paths="$(jq -r '[.tree[]?.path | select(. == ".github/dependabot.yml" or . == ".github/dependabot.yaml")] | join(",")' <<< "$tree_json")"
+      if [[ -n "$config_paths" ]]; then
+        status="config-present"
+        details="archived repository still has a Dependabot configuration"
+      fi
+    fi
+
+    if ! bot_prs="$(gh_api_with_retries --paginate "repos/$api_target/pulls?state=open&per_page=100" --jq \
+        '.[] | select(.user.login == "dependabot[bot]" or .user.login == "dependabot") | .number' | paste -sd ',' -)"; then
+      status="api-error"
+      details="open pull requests could not be read"
+    elif [[ -n "$bot_prs" && "$status" != "api-error" ]]; then
+      status="open-bot-prs"
+      details="archived repository has open Dependabot pull requests"
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$api_target" "$default_branch" "$config_paths" "$bot_prs" "$status" "$details" >> "$output_path"
+  done < "$inventory_path"
+
+  printf '%s\n' "$output_path"
+}
+
+archived_dependabot_has_failures() {
+  awk -F '\t' 'NR > 1 && $5 != "ok" { found = 1 } END { exit found ? 0 : 1 }' "$1"
 }
 
 write_dependency_auto_merge_report() {
@@ -1709,6 +1770,9 @@ PY
 write_local_trims_report() {
   local output_path="$OUT_DIR/generated-sdk-local-trims.tsv"
   local log_dir="$OUT_DIR/local-trim-logs"
+  local checkpoint_dir="$OUT_DIR/local-trim-checkpoints"
+  local checkpoint_path
+  local checkpoint_temp
   local output_temp
   local autosdk_version
   local dotnet_version
@@ -1727,7 +1791,7 @@ write_local_trims_report() {
   local log_sha256
   local project_count
 
-  mkdir -p "$OUT_DIR" "$log_dir"
+  mkdir -p "$OUT_DIR" "$log_dir" "$checkpoint_dir"
   output_temp="$(mktemp "$OUT_DIR/.generated-sdk-local-trims.XXXXXX")"
   autosdk_version="$(autosdk --version | sed -n '1p')"
   dotnet_version="$(dotnet --version | sed -n '1p')"
@@ -1740,9 +1804,11 @@ write_local_trims_report() {
       project_count=$((project_count + 1))
       relative_project_path="${project_path#"$ROOT_DIR/$repo/"}"
       log_path="$log_dir/$repo-${project_count}.log"
+      checkpoint_path="$checkpoint_dir/$repo-${project_count}.tsv"
       head_sha="$(git -C "$ROOT_DIR/$repo" rev-parse HEAD)"
       if [[ "${TRYAGI_LOCAL_TRIM_FORCE:-0}" != "1" ]] \
-        && trim_cache_hit "$output_path" "$repo" "$relative_project_path" "$head_sha" "$log_path" "$autosdk_version" "$dotnet_version" "$runtime"; then
+        && { trim_cache_hit "$output_path" "$repo" "$relative_project_path" "$head_sha" "$log_path" "$autosdk_version" "$dotnet_version" "$runtime" \
+          || trim_cache_hit "$checkpoint_path" "$repo" "$relative_project_path" "$head_sha" "$log_path" "$autosdk_version" "$dotnet_version" "$runtime"; }; then
         status="success"
         exit_code="0"
         duration_seconds=""
@@ -1772,6 +1838,14 @@ write_local_trims_report() {
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$repo" "$relative_project_path" "$status" "$exit_code" "$duration_seconds" "$log_path" \
         "$head_sha" "$cache_status" "$autosdk_version" "$dotnet_version" "$runtime" "$log_sha256" >> "$output_temp"
+
+      # Persist each completed project even if the fleet run is interrupted.
+      checkpoint_temp="$(mktemp "$checkpoint_dir/.${repo}-${project_count}.XXXXXX")"
+      printf 'repo\tproject\tstatus\texit_code\tduration_seconds\tlog_path\thead_sha\tcache_status\tautosdk_version\tdotnet_version\truntime\tlog_sha256\n' > "$checkpoint_temp"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$repo" "$relative_project_path" "$status" "$exit_code" "$duration_seconds" "$log_path" \
+        "$head_sha" "$cache_status" "$autosdk_version" "$dotnet_version" "$runtime" "$log_sha256" >> "$checkpoint_temp"
+      mv "$checkpoint_temp" "$checkpoint_path"
     done < <(find_generated_project_paths "$repo")
 
     if [[ "$project_count" == "0" ]]; then
@@ -2720,7 +2794,7 @@ main() {
     fi
   fi
 
-  if [[ "$MODE" != "sync" && "$MODE" != "repos" && "$MODE" != "dependency-auto-merge" ]]; then
+  if [[ "$MODE" != "sync" && "$MODE" != "repos" && "$MODE" != "dependency-auto-merge" && "$MODE" != "archived-dependabot" ]]; then
     require_ready_sync_report
   fi
 
@@ -2728,10 +2802,12 @@ main() {
     sync)
       sync_path="$(write_sync_report)"
       hygiene_path="$(write_workspace_hygiene_report)"
+      archived_dependabot_path="$(write_archived_dependabot_report)"
       write_summary_report "$MODE" >/dev/null
       print_sync_summary "$sync_path"
       print_workspace_hygiene_summary "$hygiene_path"
-      if sync_report_has_failures "$sync_path" || workspace_hygiene_has_failures "$hygiene_path"; then
+      printf 'Archived Dependabot violations: %s\n' "$(awk -F '\t' 'NR > 1 && $5 != "ok" { count++ } END { print count + 0 }' "$archived_dependabot_path")"
+      if sync_report_has_failures "$sync_path" || workspace_hygiene_has_failures "$hygiene_path" || archived_dependabot_has_failures "$archived_dependabot_path"; then
         exit 2
       fi
       ;;
@@ -2742,6 +2818,13 @@ main() {
       settings_path="$(write_settings_report)"
       write_summary_report "$MODE" "$settings_path" >/dev/null
       printf '%s\n' "$settings_path"
+      ;;
+    archived-dependabot)
+      archived_dependabot_path="$(write_archived_dependabot_report)"
+      printf '%s\n' "$archived_dependabot_path"
+      if archived_dependabot_has_failures "$archived_dependabot_path"; then
+        exit 2
+      fi
       ;;
     dependency-auto-merge)
       dependency_auto_merge_path="$(write_dependency_auto_merge_report)"
