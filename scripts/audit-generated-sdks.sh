@@ -59,6 +59,7 @@ Environment:
   TRYAGI_GH_API_RETRY_DELAY_SECONDS Delay between GitHub API retry attempts. Default: 2
   TRYAGI_SYNC_MAX_AGE_SECONDS       Maximum accepted age for a sync snapshot. Default: 21600 (6 hours)
   TRYAGI_LOCAL_TRIM_FORCE           Set to 1 to rerun trims even when the verified HEAD cache matches.
+  TRYAGI_LOCAL_TRIM_MAX_FRESH_PROJECTS Limit fresh trims per invocation; rerun to resume from checkpoints.
 EOF
 }
 
@@ -1772,6 +1773,7 @@ PY
 
 write_local_trims_report() {
   local output_path="$OUT_DIR/generated-sdk-local-trims.tsv"
+  local progress_path="$OUT_DIR/generated-sdk-local-trims-progress.tsv"
   local log_dir="$OUT_DIR/local-trim-logs"
   local checkpoint_dir="$OUT_DIR/local-trim-checkpoints"
   local checkpoint_path
@@ -1793,6 +1795,18 @@ write_local_trims_report() {
   local cache_status
   local log_sha256
   local project_count
+  local max_fresh="${TRYAGI_LOCAL_TRIM_MAX_FRESH_PROJECTS:-0}"
+  local fresh_count=0
+  local pending_count=0
+
+  if ! [[ "$max_fresh" =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "TRYAGI_LOCAL_TRIM_MAX_FRESH_PROJECTS must be a non-negative integer" >&2
+    return 2
+  fi
+  if [[ "$max_fresh" != "0" && "${TRYAGI_LOCAL_TRIM_FORCE:-0}" == "1" ]]; then
+    echo "TRYAGI_LOCAL_TRIM_FORCE cannot be combined with a fresh-project limit" >&2
+    return 2
+  fi
 
   mkdir -p "$OUT_DIR" "$log_dir" "$checkpoint_dir"
   output_temp="$(mktemp "$OUT_DIR/.generated-sdk-local-trims.XXXXXX")"
@@ -1816,7 +1830,19 @@ write_local_trims_report() {
         exit_code="0"
         duration_seconds=""
         cache_status="reused"
+      elif [[ "$max_fresh" != "0" && "$fresh_count" -ge "$max_fresh" ]]; then
+        status="pending"
+        exit_code=""
+        duration_seconds=""
+        cache_status="pending"
+        log_sha256=""
+        pending_count=$((pending_count + 1))
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+          "$repo" "$relative_project_path" "$status" "$exit_code" "$duration_seconds" "$log_path" \
+          "$head_sha" "$cache_status" "$autosdk_version" "$dotnet_version" "$runtime" "$log_sha256" >> "$output_temp"
+        continue
       else
+        fresh_count=$((fresh_count + 1))
         started_at="$(date +%s)"
         set +e
         autosdk trim "$project_path" > "$log_path" 2>&1
@@ -1857,8 +1883,14 @@ write_local_trims_report() {
     fi
   done < <(list_generated_sdk_repos)
 
-  mv "$output_temp" "$output_path"
-  printf '%s\n' "$output_path"
+  if [[ "$pending_count" -gt 0 ]]; then
+    mv "$output_temp" "$progress_path"
+    printf '%s\n' "$progress_path"
+  else
+    mv "$output_temp" "$output_path"
+    rm -f "$progress_path"
+    printf '%s\n' "$output_path"
+  fi
 }
 
 list_local_smoke_targets() {
@@ -2066,6 +2098,9 @@ print_local_trim_summary() {
   )"
   printf 'Local trim failures: %s\n' "$(
     awk -F '\t' 'NR > 1 && $3 == "failed" { count++ } END { print count + 0 }' "$local_trims_path"
+  )"
+  printf 'Local trims pending: %s\n' "$(
+    awk -F '\t' 'NR > 1 && $3 == "pending" { count++ } END { print count + 0 }' "$local_trims_path"
   )"
   printf 'Missing projects: %s\n' "$(
     awk -F '\t' 'NR > 1 && $3 == "missing-project" { count++ } END { print count + 0 }' "$local_trims_path"
@@ -2877,6 +2912,10 @@ main() {
       local_trims_path="$(write_local_trims_report)"
       write_summary_report "$MODE" "" "" "" "" "" "$local_trims_path" >/dev/null
       print_local_trim_summary "$local_trims_path"
+      if awk -F '\t' 'NR > 1 && $3 == "pending" { found = 1 } END { exit found ? 0 : 1 }' "$local_trims_path"; then
+        echo "Local trim audit incomplete; rerun local-trims to continue from checkpoints." >&2
+        exit 3
+      fi
       ;;
     local-smoke)
       local_smoke_path="$(write_local_smoke_report)"

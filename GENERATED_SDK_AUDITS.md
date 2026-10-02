@@ -154,6 +154,7 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
   - Reuses a previous success only when the project and repository HEAD match, AutoSDK and .NET versions and runtime match, and the successful log digest still verifies. Failed or incomplete checks run again. Changes during a check fail that row.
   - The command summary shows how many project checks reused the cache and how many ran. `cache_status` in the TSV distinguishes `reused` from `fresh` even when a HEAD change invalidates the row.
   - Set `TRYAGI_LOCAL_TRIM_FORCE=1` to run every trim again. The report is replaced only after all rows finish, so an interrupted run cannot turn a partial report into a cache source.
+  - Set `TRYAGI_LOCAL_TRIM_MAX_FRESH_PROJECTS=10` to cap new project checks in one run. The command exits 3 while work remains and writes `generated-sdk-local-trims-progress.tsv` with `pending` rows. Repeat the command to reuse verified per-project checkpoints and process the next portion. The complete `generated-sdk-local-trims.tsv` is replaced only after every project has been checked. Do not combine this limit with `TRYAGI_LOCAL_TRIM_FORCE=1`.
 - `generated-sdk-local-smoke.tsv`
   - Runs only repositories allowlisted under `smoke.local_container_repositories`
   - Forces local Testcontainers environments and never targets a paid provider endpoint

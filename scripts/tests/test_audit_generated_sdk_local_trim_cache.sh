@@ -95,4 +95,21 @@ PY
 write_local_trims_report >/dev/null
 [[ "$(cat "$test_root/calls")" == "8" ]]
 
+mkdir -p "$ROOT_DIR/Fixture/src/libs/Second"
+touch "$ROOT_DIR/Fixture/src/libs/Second/generate.sh"
+printf '<Project Sdk="Microsoft.NET.Sdk" />\n' > "$ROOT_DIR/Fixture/src/libs/Second/Second.csproj"
+git -C "$ROOT_DIR/Fixture" add src/libs/Second/generate.sh src/libs/Second/Second.csproj
+git -C "$ROOT_DIR/Fixture" commit -qm 'add second project'
+previous_report_sha="$(shasum -a 256 "$OUT_DIR/generated-sdk-local-trims.tsv")"
+TRYAGI_LOCAL_TRIM_MAX_FRESH_PROJECTS=1 write_local_trims_report >/dev/null
+[[ "$(cat "$test_root/calls")" == "9" ]]
+[[ "$(shasum -a 256 "$OUT_DIR/generated-sdk-local-trims.tsv")" == "$previous_report_sha" ]]
+grep -q $'Fixture\tsrc/libs/Second/Second.csproj\tpending\t' "$OUT_DIR/generated-sdk-local-trims-progress.tsv"
+[[ ! -f "$OUT_DIR/local-trim-checkpoints/Fixture-2.tsv" ]]
+TRYAGI_LOCAL_TRIM_MAX_FRESH_PROJECTS=1 write_local_trims_report >/dev/null
+[[ "$(cat "$test_root/calls")" == "10" ]]
+[[ ! -f "$OUT_DIR/generated-sdk-local-trims-progress.tsv" ]]
+[[ "$(awk 'END { print NR }' "$OUT_DIR/generated-sdk-local-trims.tsv")" == "3" ]]
+grep -q $'Fixture\tsrc/libs/Second/Second.csproj\tsuccess\t0\t.*\tfresh\t' "$OUT_DIR/generated-sdk-local-trims.tsv"
+
 echo "generated SDK trimming cache tests passed"
