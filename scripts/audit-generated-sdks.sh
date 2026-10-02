@@ -1131,6 +1131,9 @@ write_archived_dependabot_report() {
     if ! tree_json="$(gh_api_with_retries "repos/$api_target/git/trees/$default_branch?recursive=1")"; then
       status="api-error"
       details="default branch tree could not be read"
+    elif jq -e '.truncated == true' <<< "$tree_json" >/dev/null; then
+      status="api-error"
+      details="default branch tree was truncated"
     else
       config_paths="$(jq -r '[.tree[]?.path | select(. == ".github/dependabot.yml" or . == ".github/dependabot.yaml")] | join(",")' <<< "$tree_json")"
       if [[ -n "$config_paths" ]]; then
