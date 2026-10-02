@@ -58,4 +58,12 @@ fi
 [[ "$(git -C "$different_repo" rev-parse HEAD)" == "$fixture_base" ]]
 [[ "$(git -C "$different_repo" status --short)" == " M already-upstream.txt" ]]
 
+OUT_DIR="$test_root/reports"
+mkdir -p "$OUT_DIR"
+printf 'repo\tstatus\nActive\tcurrent\n__inventory__\tok\n' > "$OUT_DIR/generated-sdk-sync.tsv"
+MODE=local-trims
+[[ "$(list_generated_sdk_repos)" == "Active" ]]
+REPO_FILTER='^Other$'
+[[ -z "$(list_generated_sdk_repos)" ]]
+
 echo "audit-generated-sdks sync equivalence tests passed"

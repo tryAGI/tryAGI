@@ -194,6 +194,19 @@ parse_args() {
 list_generated_sdk_repos() {
   local repo_dir
   local repo_name
+  local sync_path="$OUT_DIR/generated-sdk-sync.tsv"
+
+  # Downstream checks use the verified sync inventory. In particular, retired
+  # archived SDKs must not be rediscovered through an unauthenticated API call.
+  if [[ "$MODE" != "sync" && "$MODE" != "repos" && -f "$sync_path" ]]; then
+    awk -F '\t' 'NR > 1 && $1 != "" && $1 != "__inventory__" { print $1 }' "$sync_path" \
+      | while IFS= read -r repo_name; do
+          if [[ -z "$REPO_FILTER" || "$repo_name" =~ $REPO_FILTER ]]; then
+            printf '%s\n' "$repo_name"
+          fi
+        done
+    return
+  fi
 
   for repo_dir in "$ROOT_DIR"/*; do
     [[ -d "$repo_dir/.git" ]] || continue
