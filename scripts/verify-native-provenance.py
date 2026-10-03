@@ -9,6 +9,9 @@ import re
 import subprocess
 import sys
 
+# This read-only workspace audit must not create untracked local helper caches.
+sys.dont_write_bytecode = True
+
 
 def digest(path):
     with path.open('rb') as stream:
