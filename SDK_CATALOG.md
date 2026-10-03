@@ -9,7 +9,7 @@ Full list of all projects in the tryAGI workspace, organized by category.
 | `AutoSDK/` | Roslyn incremental source generator framework that auto-generates .NET SDKs from OpenAPI specs. CLI tool + NuGet library. The engine behind most SDKs here. |
 | `AutoSDK.Portal/` | Next.js/TypeScript SaaS portal for AutoSDK (authentication, Stripe, dashboard). Not a .NET project. |
 | `CSharpToJsonSchema/` | Source generator that converts C# interfaces/methods to JSON Schema for function/tool calling (OpenAI, Anthropic, Ollama, etc.). |
-| `DotnetCliWrapper/` | .NET wrapper for running `dotnet` CLI commands from C# and parsing structured results. |
+| `DotnetCliWrapper/` | **Archived; no longer maintained.** Historical .NET wrapper for running `dotnet` CLI commands from C# and parsing structured results. |
 | `SdkTemplate/` | Template/scaffold repository for initializing new AutoSDK-based SDK projects. |
 | `Tiktoken/` | High-performance .NET port of OpenAI's Tiktoken tokenizer (o200k_base, cl100k_base, r50k_base, p50k_base). |
 | `openai-dotnet/` | Fork/mirror of the official OpenAI .NET library (Microsoft collaboration). |

@@ -34,6 +34,7 @@ Most auto-generated SDKs follow this layout:
 
 ### Key Rules for Generated SDKs
 
+- Follow [SDK_DEPENDENCY_POLICY.md](SDK_DEPENDENCY_POLICY.md): prefer .NET/Microsoft and identified first-party runtime dependencies; official Google/AWS integrations are permitted. Apply the rule to transitive dependencies and packaged native code. LangChain integrations and existing migration items are documented separately. Build/test dependencies require separate provenance accounting.
 - **NEVER edit files in `Generated/` directories** — they are overwritten on regeneration
 - Hand-written extensions go in partial classes at the library root (outside `Generated/`)
 - Regenerate with: `cd src/libs/<SdkName> && ./generate.sh`
