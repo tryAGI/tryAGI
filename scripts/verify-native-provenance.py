@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify recorded native assets and source inputs without rebuilding or rebaselining."""
 import argparse
+import importlib.util
 import hashlib
 import json
 from pathlib import Path
@@ -45,11 +46,31 @@ def verify(root, require_complete=False):
                   if i['path'].startswith(snapshot['path'].rstrip('/') + '/')]
         if set(tracked) != set(listed):
             errors.append(f"source inventory differs: {snapshot['path']}")
+    recorder_path = Path(__file__).with_name('native-build-attestation.py')
+    spec = importlib.util.spec_from_file_location('native_attestation', recorder_path)
+    recorder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(recorder)
+    recorded_builds = set()
+    for path in (root / 'natives/attestations').rglob('*.json'):
+        try:
+            receipt = json.loads(path.read_text())
+            if digest(path) != path.stem:
+                raise ValueError('content-addressed receipt hash differs')
+            kind = recorder.check(root, receipt)
+            if kind == 'build':
+                recorded_builds.update((e['path'], receipt['rid']) for e in receipt['outputs'])
+        except ValueError as error:
+            if str(error).startswith('output differs from receipt:'):
+                continue  # A preserved receipt can refer to an older output generation.
+            errors.append(f'invalid receipt {path.name}: {error}')
+        except (OSError, KeyError, TypeError) as error:
+            errors.append(f'invalid receipt {path.name}: {error}')
     ids = {c['id'] for c in manifest['components']}
     for entry in manifest['artifacts']:
         if not entry['components'] or not set(entry['components']).issubset(ids):
             errors.append(f"unknown component: {entry['path']}")
-        if entry['build_attestation'] != 'verified':
+        rids = {p.split('/')[1] for p in entry.get('package_paths', []) if p.startswith('runtimes/')}
+        if not rids or not all((entry['path'], rid) in recorded_builds for rid in rids):
             gaps.append(entry['path'])
     return errors, gaps
 
@@ -65,7 +86,7 @@ def main():
         root = repository.resolve()
         try:
             errors, gaps = verify(root)
-            print(f'{root.name}: {len(errors)} integrity errors; {len(gaps)} historical build-attestation gaps')
+            print(f'{root.name}: {len(errors)} integrity errors; {len(gaps)} build-recording gaps')
             for error in errors:
                 print(f'  ERROR: {error}')
             if gaps:

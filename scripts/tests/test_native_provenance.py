@@ -34,12 +34,18 @@ class NativeProvenanceTests(unittest.TestCase):
 
     def test_strict_cli_fails_on_unattested_build(self):
         script = Path(__file__).parents[1] / 'verify-native-provenance.py'
-        result = subprocess.run([sys.executable, str(script), '--require-complete', str(self.root)], capture_output=True)
+        result = subprocess.run([sys.executable, '-B', str(script), '--require-complete', str(self.root)], capture_output=True)
         self.assertEqual(result.returncode, 1)
 
     def test_changed_binary_is_rejected(self):
         self.asset.write_bytes(b'tampered')
         self.assertTrue(provenance.verify(self.root)[0])
+
+    def test_verified_label_without_receipt_is_not_build_evidence(self):
+        self.manifest['artifacts'][0]['build_attestation'] = 'verified'
+        self.manifest['artifacts'][0]['package_paths'] = ['runtimes/linux-x64/native/libfixture.so']
+        self.write_manifest()
+        self.assertEqual(provenance.verify(self.root), ([], ['natives/libfixture.so']))
 
     def test_unrecorded_binary_is_rejected(self):
         (self.root / 'natives/unrecorded.dll').write_bytes(b'new')

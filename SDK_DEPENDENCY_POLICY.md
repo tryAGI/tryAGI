@@ -33,8 +33,10 @@ it. Inspect runtime usage and the produced package before making that claim.
   that dependency, nor should generated clients acquire it implicitly.
 - SIPSorcery in DId.Realtime and Simli is an existing dependency being replaced in
   separate work. This policy does not authorize adding it to other SDKs.
-- Other existing third-party dependencies, including Gonka's cryptography package
-  and native libraries in OpusSharp, SpeexDspSharp, and HeifSharp, remain explicit
+- BouncyCastle.Cryptography is approved for Gonka's existing secp256k1 signing
+  and address derivation following maintainer review on 2026-10-03. Retain it;
+  this approval does not extend to unrelated SDKs.
+- Other existing third-party dependencies, including native libraries in OpusSharp, SpeexDspSharp, and HeifSharp, remain explicit
   migration or review items. Their presence is not an approval for new uses.
 
 Before adding an exception, record its package or upstream source, purpose,
@@ -90,3 +92,12 @@ python3 scripts/verify-native-provenance.py OpusSharp SpeexDspSharp HeifSharp
 Use `--require-complete` to also fail on historical build-attestation gaps. A
 matching recorded hash is an integrity result, not proof of a reviewed or
 reproducible upstream build. These checks have not been added to CI yet.
+
+New native operations record content-addressed, unsigned local receipts per RID
+through each repository's build/refresh script. Build receipts bind input and
+toolchain snapshots, explicit parameters and output hashes; prebuilt-package
+imports are labeled separately and retain unknown upstream compiler provenance.
+Receipts are packaged for consumers. The local verifier validates receipt
+content hashes and current outputs; a `verified` string alone is not evidence.
+Historical outputs are not retroactively attested, and no baseline is
+automatically rewritten after a build.
