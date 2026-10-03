@@ -72,3 +72,21 @@ an unused repository. Disable its maintenance and publishing workflows. Preserve
 the repository and published packages for historical consumers, mark retirement
 in its README and workspace catalog, and leave external human proposals for
 explicit maintainer review.
+
+## Recorded reviews and native baselines
+
+Gonka's [cryptography dependency review](Gonka/DEPENDENCY_REVIEW.md) explains
+why platform cryptography is not currently a portable drop-in replacement and
+records the no-cost capability/vector checks.
+
+OpusSharp, SpeexDspSharp, and HeifSharp each retain `NATIVE_PROVENANCE.json` and
+`NATIVE_PROVENANCE.md` in their repository and NuGet package. Verify their binary
+and source-input baselines from this workspace with:
+
+```sh
+python3 scripts/verify-native-provenance.py OpusSharp SpeexDspSharp HeifSharp
+```
+
+Use `--require-complete` to also fail on historical build-attestation gaps. A
+matching recorded hash is an integrity result, not proof of a reviewed or
+reproducible upstream build. These checks have not been added to CI yet.
