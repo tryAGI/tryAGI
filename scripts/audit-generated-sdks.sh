@@ -1558,17 +1558,52 @@ fetch_run_log() {
   local run_id="$2"
   local api_target
   local log_dir="$OUT_DIR/logs"
-  local cache_dir="$OUT_DIR/.cache"
-  local log_path="$log_dir/$repo-$run_id.log"
+  local run_attempt
+  local log_path
+  local archive_path
+  local temp_log
 
-  mkdir -p "$log_dir" "$cache_dir"
+  mkdir -p "$log_dir"
   api_target="$(repo_api_target "$repo")"
 
-  if [[ ! -f "$log_path" ]]; then
-    if ! XDG_CACHE_HOME="$cache_dir" gh run view "$run_id" --repo "$api_target" --log > "$log_path" 2>/dev/null; then
-      rm -f "$log_path"
+  # A rerun keeps its run ID but has different logs. Never reuse a prior attempt.
+  run_attempt="$(gh api "repos/$api_target/actions/runs/$run_id" --jq '.run_attempt' 2>/dev/null)" || return 1
+  [[ "$run_attempt" =~ ^[1-9][0-9]*$ ]] || return 1
+  log_path="$log_dir/$repo-$run_id-attempt-$run_attempt.log"
+
+  if [[ ! -s "$log_path" ]]; then
+    archive_path="$(mktemp "$log_dir/.run-archive.XXXXXX")"
+    temp_log="$(mktemp "$log_dir/.run-log.XXXXXX")"
+    # Older gh versions can exit successfully with no output for --log when
+    # GitHub changes archive naming. Read the attempt archive directly instead.
+    if ! gh api "repos/$api_target/actions/runs/$run_id/attempts/$run_attempt/logs" > "$archive_path" 2>/dev/null; then
+      rm -f "$archive_path" "$temp_log"
       return 1
     fi
+    if ! python3 - "$archive_path" > "$temp_log" <<'PY'
+import sys
+from zipfile import ZipFile
+
+with ZipFile(sys.argv[1]) as archive:
+    files = [entry for entry in archive.infolist() if not entry.is_dir() and entry.filename.endswith(".txt")]
+    # GitHub includes both whole-job logs and individual step copies. Read one
+    # representation so warnings and test summaries are not counted twice.
+    job_logs = [entry for entry in files if "/" not in entry.filename]
+    selected = job_logs or files
+    if not selected or sum(entry.file_size for entry in selected) > 256 * 1024 * 1024:
+        raise ValueError("Missing or oversized workflow logs")
+    for entry in sorted(selected, key=lambda item: item.filename):
+        text = archive.read(entry).decode("utf-8", errors="replace")
+        if not text.strip():
+            raise ValueError("Empty workflow job log")
+        print(text)
+PY
+    then
+      rm -f "$archive_path" "$temp_log"
+      return 1
+    fi
+    rm -f "$archive_path"
+    mv "$temp_log" "$log_path"
   fi
 
   printf '%s\n' "$log_path"

@@ -141,6 +141,7 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-log-signals.tsv`
   - One row per repo for the latest completed `Publish` run
   - Includes raw warning-line counts, skipped-test counts, and inconclusive-test hits
+  - Downloads the workflow attempt's log archive directly, avoiding older GitHub CLI versions that return empty output for `gh run view --log`. Reads consolidated job logs without counting duplicate step copies, caches by run ID and attempt, and reports unavailable, empty, or invalid logs as `log-unavailable` rather than zero signals.
 - `generated-sdk-operation-visibility.tsv`
   - One row per operation configured under `operation_visibility.required_public_operations`
   - Verifies the repository and normalized JSON spec exist, the method/path remains present, the `operationId` matches policy, and no supported hidden/ignore extension excludes it
