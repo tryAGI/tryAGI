@@ -1562,6 +1562,10 @@ fetch_run_log() {
   local log_path
   local archive_path
   local temp_log
+  local job_log
+  local job_id
+  local job_status
+  local job_fetch_failed
 
   mkdir -p "$log_dir"
   api_target="$(repo_api_target "$repo")"
@@ -1570,17 +1574,80 @@ fetch_run_log() {
   run_attempt="$(gh api "repos/$api_target/actions/runs/$run_id" --jq '.run_attempt' 2>/dev/null)" || return 1
   [[ "$run_attempt" =~ ^[1-9][0-9]*$ ]] || return 1
   log_path="$log_dir/$repo-$run_id-attempt-$run_attempt.log"
+  if (( run_attempt > 1 )); then
+    # Attempt archives omit successful jobs retained by a failed-job rerun.
+    # Invalidate archive-only rerun caches; current job IDs still serve their logs.
+    log_path="$log_dir/$repo-$run_id-attempt-$run_attempt-jobs-v1.log"
+  fi
 
   if [[ ! -s "$log_path" ]]; then
     archive_path="$(mktemp "$log_dir/.run-archive.XXXXXX")"
     temp_log="$(mktemp "$log_dir/.run-log.XXXXXX")"
-    # Older gh versions can exit successfully with no output for --log when
-    # GitHub changes archive naming. Read the attempt archive directly instead.
-    if ! gh api "repos/$api_target/actions/runs/$run_id/attempts/$run_attempt/logs" > "$archive_path" 2>/dev/null; then
-      rm -f "$archive_path" "$temp_log"
-      return 1
-    fi
-    if ! python3 - "$archive_path" > "$temp_log" <<'PY'
+    if (( run_attempt > 1 )); then
+      job_log="$(mktemp "$log_dir/.run-job.XXXXXX")"
+      if ! gh api "repos/$api_target/actions/runs/$run_id/attempts/$run_attempt/jobs?per_page=100" \
+        --paginate --jq '.jobs[] | select(.conclusion != "skipped") | [.id, .status] | @tsv' \
+        > "$archive_path" 2>/dev/null; then
+        rm -f "$archive_path" "$temp_log" "$job_log"
+        return 1
+      fi
+      if ! python3 - "$archive_path" <<'PYJOBS'
+import sys
+
+with open(sys.argv[1]) as source:
+    rows = [line.rstrip("\n").split("\t") for line in source if line.strip()]
+if not rows or any(len(row) != 2 or not row[0].isascii() or not row[0].isdigit() or int(row[0]) < 1 or row[1] != "completed" for row in rows):
+    raise ValueError("Missing or incomplete workflow jobs")
+if len({row[0] for row in rows}) != len(rows):
+    raise ValueError("Duplicate workflow job IDs")
+PYJOBS
+      then
+        rm -f "$archive_path" "$temp_log" "$job_log"
+        return 1
+      fi
+      job_fetch_failed=false
+      while IFS=$'\t' read -r job_id job_status; do
+        [[ -n "$job_id" ]] || continue
+        if [[ "$job_status" != completed ]] || ! gh api "repos/$api_target/actions/jobs/$job_id/logs" > "$job_log" 2>/dev/null; then
+          job_fetch_failed=true
+          break
+        fi
+        if ! python3 - "$job_log" "$temp_log" <<'PYLOG'
+from pathlib import Path
+import sys
+
+source, target = map(Path, sys.argv[1:])
+limit = 256 * 1024 * 1024
+size = source.stat().st_size
+if size > limit:
+    raise ValueError("Oversized workflow job log")
+text = source.read_bytes().decode("utf-8", errors="replace")
+if not text.strip():
+    raise ValueError("Empty workflow job log")
+data = (text + "\n").encode("utf-8")
+if target.stat().st_size + len(data) > limit:
+    raise ValueError("Oversized workflow logs")
+with target.open("ab") as output:
+    output.write(data)
+PYLOG
+        then
+          job_fetch_failed=true
+          break
+        fi
+      done < "$archive_path"
+      rm -f "$job_log"
+      if [[ "$job_fetch_failed" == true ]]; then
+        rm -f "$archive_path" "$temp_log"
+        return 1
+      fi
+    else
+      # Older gh versions can exit successfully with no output for --log when
+      # GitHub changes archive naming. Read the attempt archive directly instead.
+      if ! gh api "repos/$api_target/actions/runs/$run_id/attempts/$run_attempt/logs" > "$archive_path" 2>/dev/null; then
+        rm -f "$archive_path" "$temp_log"
+        return 1
+      fi
+      if ! python3 - "$archive_path" > "$temp_log" <<'PY'
 import sys
 from zipfile import ZipFile
 
@@ -1598,9 +1665,10 @@ with ZipFile(sys.argv[1]) as archive:
             raise ValueError("Empty workflow job log")
         print(text)
 PY
-    then
-      rm -f "$archive_path" "$temp_log"
-      return 1
+      then
+        rm -f "$archive_path" "$temp_log"
+        return 1
+      fi
     fi
     rm -f "$archive_path"
     mv "$temp_log" "$log_path"
