@@ -11,6 +11,7 @@ This document provides a single source of truth for MEAI interface implementatio
 | [Anthropic](https://github.com/tryAGI/Anthropic) | Y | - | - | - | No |
 | [Ollama](https://github.com/tryAGI/Ollama) | Y | Y | - | - | No |
 | [OpenAI](https://github.com/tryAGI/OpenAI) | Y | Y | - | - | Yes (`Meai`) |
+| [Inception](https://github.com/tryAGI/Inception) | Y | - | - | - | Yes (`Meai`) |
 | [Gonka](https://github.com/tryAGI/Gonka) | Y | - | - | - | No |
 | [Google.Gemini](https://github.com/tryAGI/Google_Generative_AI) | Y | Y | Y | - | No |
 | [Mistral](https://github.com/tryAGI/Mistral) | Y | - | - | - | Yes (`Meai`) |
@@ -101,6 +102,7 @@ These providers get `IChatClient` + `IEmbeddingGenerator` through `CustomProvide
 | Tencent TokenHub | `CustomProviders.TencentTokenHub(key)` | `hy3-preview` |
 | Tencent TokenHub Intl | `CustomProviders.TencentTokenHubIntl(key)` | `glm-5` |
 | Z.AI / Zhipu GLM | `CustomProviders.ZAi(key)` | `glm-4.6` |
+| Inception Mercury | `CustomProviders.Inception(key)` | `mercury-3` |
 | Kimi / Moonshot | `CustomProviders.Moonshot(key)` | `kimi-k2.5` |
 | Kimi Coding Plan | `CustomProviders.KimiForCoding(key)` | `kimi-for-coding` |
 | Kimi / Moonshot China | `CustomProviders.MoonshotChina(key)` | `kimi-k2.6` |
@@ -152,7 +154,7 @@ var response = await chatClient.GetResponseAsync(
     new Meai.ChatOptions { ModelId = "model-name" });
 ```
 
-**SDKs with conflict:** OpenAI, Mistral, Cohere, Together, Reka, Writer, Mixedbread, SarvamAI
+**SDKs with conflict:** OpenAI, Inception, Mistral, Cohere, Together, Reka, Writer, Mixedbread, SarvamAI
 **SDKs without conflict:** Anthropic, Ollama, Google.Gemini, AI21, HuggingFace, Jina, VoyageAI, ElevenLabs, AssemblyAI, Gladia, Cartesia, Deepgram, Tavily, Exa, Serper, TwelveLabs, Browserbase, Composio, Helicone, BraveSearch, FishAudio, KlingAI, CursorAgents, Vapi, Tavus, RetellAI
 
 ## Feature Comparison
@@ -255,6 +257,7 @@ Each SDK has a dedicated MEAI guide page in its mkdocs documentation:
 | SDK | Guide |
 |-----|-------|
 | OpenAI | `docs/guides/meai.md` |
+| Inception | `docs/guides/meai.md` |
 | Gonka | `docs/guides/meai.md` |
 | Ollama | `docs/guides/meai.md` |
 | Anthropic | `docs/guides/meai.md` |
@@ -338,6 +341,7 @@ Reference implementations:
 | `Jina/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, multimodal extensions for images/PDFs) |
 | `VoyageAI/` | `IEmbeddingGenerator` | 10.4.1 | Full (text embeddings, custom dimensions, token usage) |
 | `OpenAI/` | `IChatClient` + `IEmbeddingGenerator` + `ITextToSpeechClient` | 10.4.1 | Full (text, streaming, tools, images, JSON/structured output, temp/topP/seed, AdditionalProperties pass-through) / Full (embeddings with dimensions) / Full TTS via `gpt-4o-mini-tts`, built-in/custom voices, instructions, buffered audio, and chunked streaming |
+| `Inception/` | `IChatClient` | 10.11.0 | Text, streaming, function calls/results, JSON schemas, usage, and native reasoning/realtime controls; Decisions, FIM, edits, and diffusion frames use the native API |
 | `Gonka/` | `IChatClient` | 10.5.0 | Full (text, streaming, tools, image URL/data content, JSON response-format hints; direct network signing) |
 | `Coze/` | `IChatClient` | 10.4.1 | Partial (text, streaming, reasoning text; bot-centric chat requiring `bot_id` and `user_id`; provider-issued tool calls are not yet emitted as `FunctionCallContent`) |
 | `Tavily/` | `AIFunction` tools | 10.4.1 | Full (`AsSearchTool()` + `AsExtractTool()` wrappers for use with any `IChatClient`) |
