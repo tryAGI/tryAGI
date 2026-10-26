@@ -92,6 +92,38 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 ./scripts/audit-generated-sdks.sh --repo '^(OpenAI|Anthropic|Cohere)$' summary
 ```
 
+## Recovering repository blockers
+
+A failed sync is an inventory for remediation, not an instruction to end the run.
+Investigate each unsafe row, preserve its local work, and continue independent PR
+inspection and focused validation in other clean repositories. Fleet report modes
+still require a successful global sync; never label a partial audit fully current.
+
+For a coherent unpublished migration, inspect the commit, generator inputs and prior
+validation evidence. Finish the missing validation rather than treating an incomplete
+commit message or a large generated diff as a reason to stop. Integrate upstream with
+an ordinary merge that preserves both histories. Retain the migration's intended
+behavior, including shared JSON metadata and its matching analyzer binding/version.
+Resolve generated-family conflicts by regenerating from the merged specifications
+with a compatible released generator; never hand-edit generated code or select an
+entire side merely to eliminate conflicts. Use an isolated CLI installation so other
+builds and cached trim evidence retain their tool version.
+
+Validate the resulting build, no-cost request/serialization contracts, trimming and
+an executing NativeAOT consumer where applicable. For shared JSON metadata, also
+check reflection-disabled execution and byte-identical repeat generation. Verify
+both original histories remain ancestors, review the exact staged paths, commit and
+push from main, then rerun sync before trusting fleet reports. A normal merge needs
+a complete merge-index commit; verify that every staged path belongs to the intended
+merge and preserve unrelated staged work by deferring that merge's commit until
+ownership is resolved. Never use history rewrites, discard commands, secret-bearing
+file commits, or weakened validation to clear a row.
+
+Report only concrete unresolved decisions or access/validation failures as blockers.
+An ambiguous repository does not excuse leaving independently repairable trusted PRs
+untouched. Record the remaining owner, evidence and next action while continuing
+safe work elsewhere.
+
 ## Outputs
 
 - `generated-sdk-sync.tsv`
