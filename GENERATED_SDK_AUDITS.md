@@ -7,7 +7,7 @@ Tracked defaults live in [`config/generated-sdk-audit.json`](config/generated-sd
 ## What it checks
 
 - Generated SDK repo detection by scanning local repos for `src/libs/*/generate.sh`
-- A repository synchronization preflight that fetches/prunes `origin/main`, safely fast-forwards clean `main` checkouts, reconciles narrowly proven upstream-equivalent tracked modifications without creating commits, and detects missing remote AutoSDK repositories
+- A repository synchronization preflight that fetches/prunes `origin/main`, safely fast-forwards clean `main` checkouts and detects missing remote AutoSDK repositories
 - A workspace-wide hygiene gate that blocks dirty or detached repositories and tracked secret-bearing `.env` filenames
 - GitHub repo settings required for bot PR auto-merge:
   - `allow_auto_merge`
@@ -97,7 +97,7 @@ TRYAGI_SIGNAL_SKIP_IGNORE_REGEX='^(OpenAI)$' ./scripts/audit-generated-sdks.sh b
 - `generated-sdk-sync.tsv`
   - One row per detected generated SDK checkout, plus missing remote AutoSDK repositories
   - Records the GitHub API target, branch, dirty state, HEAD before and after synchronization, fetched `origin/main`, ahead/behind counts, action, timestamp, and status
-  - Fetches with pruning and fast-forwards clean `main` checkouts. A behind-only `main` checkout may also fast-forward when it has no staged or untracked paths and every modified tracked path already matches `origin/main`; those exact paths are temporarily staged so Git can consume the equivalence without a preservation commit. All other dirty states remain blocking.
+  - Fetches with pruning and fast-forwards only clean `main` checkouts. Every dirty state remains blocking, including tracked modifications whose contents already match `origin/main`. Sync never stages files.
   - Never stashes, overwrites, rewrites history, or switches local work
   - Treats dirty, ahead, diverged, wrong-branch, fetch-failed, missing-local, and inventory-error rows as blocking findings
 - `workspace-repository-hygiene.tsv`
