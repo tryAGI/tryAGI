@@ -58,7 +58,8 @@ python3 scripts/audit_response_required_defaults.py --spec Together/src/libs/Tog
 `--relax-response-required` drops those entries from `required` when a surface warrants it. Every
 one of the 13 specs with five or more candidates already has live-key integration tests
 (`JULEP_API_KEY`, `WEAVE_API_KEY`, `ELEVENLABS_API_KEY`, ...), so adding a probe is a test, not
-plumbing — `--endpoints` names the call to make.
+plumbing — `--endpoints` names the call to make, and [`RESPONSE_REQUIRED_PROBES.md`](RESPONSE_REQUIRED_PROBES.md) has that
+list already written out, split by whether the call is read-only.
 
 As of 2026-11-10, 23 of 224 specs have candidates (13 with five or more). They are **candidates, not
 defects** — plenty of services do send a field that has a default (`UsageInfo.prompt_tokens`). A hit
