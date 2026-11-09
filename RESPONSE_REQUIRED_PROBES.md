@@ -29,6 +29,14 @@ is the whole point, so asserting on one field of it is enough.
 below only so the list stays complete. Shotstack has 11 candidates and none of them is named
 directly by a response, so it has no direct probe.
 
+**What live traffic found that the audit could not.** Running these probes against a real Label
+Studio container turned up two defects in `POST /api/projects/` - a core operation that could not
+deserialize its own HTTP 201. Neither was in the candidate list: `UserSimple.username` is required
+with **no default**, and `LseProjectCreate`'s counters are non-nullable integers the API sends as
+null. So `required` + `default` is one slice of the defect, not the whole of it - the general shape
+is "the spec demands something the service does not send", and only live traffic finds the rest.
+Both are fixed in that SDK's `generate.sh`.
+
 **Done:** all six bare probes — three in Ideogram (`GetApiProfilesResponse`, `ListDatasetsResponse`,
 `ListModelsResponse`) and three in LabelStudio (`LseUserAPI`, `WhoAmIUser`, `Prediction`). They
 compile and skip without a key; nobody has run them against the real services yet. Six is the whole

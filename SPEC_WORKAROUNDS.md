@@ -34,7 +34,7 @@ Most SDKs have clean `generate.sh` scripts. The following require workarounds du
 | Letta | `python3`: SSE removal, empty schema fix, required member fix | Schema fix |
 | Nixtla | `jq`: top-level security injection | Auth fix |
 | Photoroom | `jq`: simplify GET param schema | Schema simplification |
-| LabelStudio | `yq`: apiKey→bearer conversion + `PrepareRequest` Token auth hook | Auth fix |
+| LabelStudio | `yq`: apiKey→bearer conversion + `PrepareRequest` Token auth hook; drop required `username` from `UserSimple` (the API omits it, so all 29 schemas embedding a user failed to deserialize); mark `LseProjectCreate`'s read-only integer counters nullable (a fresh project returns null for each, and the sibling `LseProject` already says nullable) | Auth fix / response shape |
 | VoyageAI | `yq`: remove broken `Authorization: Bearer` apiKey scheme | Auth fix |
 | Vapi | `jq`: 7 fixes — LMNTVoice oneOf flatten (#206), operator/punctuation enums, discriminator mappings, 11labs rename, enum dedup, duplicate param rename | Enum/schema fix |
 | SmallestAI | `yq`: declare the documented `application/json` `{"url": ...}` STT request variant; `--required-path /waves/v1/stt/` guards the Fern spec selection. Handcrafted `asyncapi.yaml` for both WebSocket channels (no upstream AsyncAPI) | Schema injection / handcrafted spec |
