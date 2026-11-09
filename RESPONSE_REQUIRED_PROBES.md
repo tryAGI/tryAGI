@@ -29,70 +29,126 @@ is the whole point, so asserting on one field of it is enough.
 below only so the list stays complete. Shotstack has 11 candidates and none of them is named
 directly by a response, so it has no direct probe.
 
-### Read-only probes — safe to add as a test
+**Done:** all six bare probes — three in Ideogram (`GetApiProfilesResponse`, `ListDatasetsResponse`,
+`ListModelsResponse`) and three in LabelStudio (`LseUserAPI`, `WhoAmIUser`, `Prediction`). They
+compile and skip without a key; nobody has run them against the real services yet. Six is the whole
+set: every other candidate either needs an id or creates something, which is why counting rows
+without reading the operations overstates how much is one call away.
+
+## Cleanup pattern for probes that create something
+
+A third of the calls below create or change a resource, and a probe that leaves one behind turns
+into litter in a real account - across a whole SDK's test run, that is the difference between a
+probe and a liability. There is no test library shared between these repositories, so this is a
+pattern to copy rather than a package to reference. The shape that matters is the `finally`: it must
+run even when the assertion fails, and it must not mask the original failure.
+
+```csharp
+[TestMethod]
+public async Task AgentResponseDeserializes()
+{
+    var client = GetAuthenticatedClient();
+
+    // Name it so a leaked resource is obviously a test's, and unique so parallel runs don't collide.
+    var created = await client.Agents.CreateAsync(new CreateAgentRequest
+    {
+        Name = $"tryagi-probe-{Guid.NewGuid():N}",
+    });
+
+    try
+    {
+        created.Should().NotBeNull();
+    }
+    finally
+    {
+        // Swallow only the cleanup's own failure: the test's verdict is the assertion above.
+        try
+        {
+            await client.Agents.DeleteAsync(created.Id);
+        }
+        catch (ApiException)
+        {
+        }
+    }
+}
+```
+
+Two things this does not solve. A resource that cannot be deleted - a dispatched batch call, a
+training session - should not be probed this way at all; cover it by reading an existing one
+instead. And a run that is killed between create and `finally` still leaks, so a service you probe
+often deserves a prefix (`tryagi-probe-`) that a periodic sweep can recognise.
+
+### Bare read-only probes (6) — a call and an assertion, nothing else
+
+✅ marks the ones already written.
 
 | SDK | Key | Schema | Fields | Call |
 |-----|-----|--------|--------|------|
-| Anthropic | `ANTHROPIC_API_KEY` | `BetaModelInfo` | `lifecycle` | `GET /v1/models/{model_id}?beta=true` |
-| Anthropic | `ANTHROPIC_API_KEY` | `BetaSelfHostedWorkQueueStats` | `pending` | `GET /v1/environments/{environment_id}/work/stats?beta=true` |
-| Anthropic | `ANTHROPIC_API_KEY` | `ModelInfo` | `lifecycle` | `GET /v1/models/{model_id}` |
-| E2B | `E2B_API_KEY` | `SandboxLogsV2Response` | `logs` | `GET /v2/sandboxes/{sandboxID}/logs` |
-| E2B | `E2B_API_KEY` | `TemplateBuildInfo` | `logEntries, logs` | `GET /templates/{templateID}/builds/{buildID}/status` |
-| E2B | `E2B_API_KEY` | `TemplateBuildLogsResponse` | `logs` | `GET /templates/{templateID}/builds/{buildID}/logs` |
-| ElevenLabs | `ELEVENLABS_API_KEY` | `BatchCallDetailedResponse` | `retry_count, total_calls_dispatched, total_calls_finished, total_calls_scheduled` | `GET /v1/convai/batch-calling/{batch_id}` |
-| Ideogram | `IDEOGRAM_API_KEY` | `GetApiKeysV2Response` | `api_keys` | `GET /manage/api/organization/api_keys` |
-| Ideogram | `IDEOGRAM_API_KEY` | `GetApiOrganizationUserSuggestionsResponse` | `user_suggestions` | `GET /manage/api/organization/user_suggestions` |
-| Ideogram | `IDEOGRAM_API_KEY` | `GetApiProfilesResponse` | `profiles` | `GET /manage/api/profiles` |
-| Ideogram | `IDEOGRAM_API_KEY` | `GetDatasetResponse` | `custom_model_ids, files` | `GET /datasets/{dataset_id}` |
-| Ideogram | `IDEOGRAM_API_KEY` | `GetOrganizationMembersResponse` | `members` | `GET /manage/api/organization/members` |
-| Ideogram | `IDEOGRAM_API_KEY` | `ListDatasetsResponse` | `datasets` | `GET /datasets` |
-| Ideogram | `IDEOGRAM_API_KEY` | `ListModelsResponse` | `models` | `GET /models` |
-| Ideogram | `IDEOGRAM_API_KEY` | `ListOrganizationInvoicesResponse` | `invoices` | `GET /manage/api/organization/list_invoices` |
-| Julep | `JULEP_API_KEY` | `Agents.Agent` | `about, instructions, model` | `GET /agents` |
-| Julep | `JULEP_API_KEY` | `Jobs.JobStatus` | `has_progress, name, progress, reason, state` | `GET /jobs/{id}` |
-| Julep | `JULEP_API_KEY` | `Sessions.Session` | `auto_run_tools, context_overflow, forward_tool_calls, render_templates, situation, summary, token_budget` | `GET /sessions` |
-| Julep | `JULEP_API_KEY` | `Tasks.Task` | `description, inherit_tools, input_schema, tools` | `GET /agents/{id}/tasks` |
-| Julep | `JULEP_API_KEY` | `Users.User` | `about, name` | `GET /users` |
-| LabelStudio | `LABEL_STUDIO_API_KEY` | `Annotation` | `created_ago, created_username` | `GET /api/annotations/{id}/` |
-| LabelStudio | `LABEL_STUDIO_API_KEY` | `LseUser` | `initials` | `GET /api/projects/{id}/members/` |
-| LabelStudio | `LABEL_STUDIO_API_KEY` | `LseUserAPI` | `initials` | `GET /api/current-user` |
-| LabelStudio | `LABEL_STUDIO_API_KEY` | `ModelInterfaceSerializerGET` | `runs_count, versions_count` | `GET /api/prompts/{id}/` |
-| LabelStudio | `LABEL_STUDIO_API_KEY` | `Prediction` | `created_ago` | `GET /api/predictions/` |
-| LabelStudio | `LABEL_STUDIO_API_KEY` | `TaskSimple` | `annotations, predictions` | `GET /api/projects/{id}/tasks/` |
-| LabelStudio | `LABEL_STUDIO_API_KEY` | `WhoAmIUser` | `initials` | `GET /api/current-user/whoami` |
-| Neon | `NEON_API_KEY` | `NeonAuthOAuthProviderConfig` | `enabled` | `GET /projects/{project_id}/branches/{branch_id}/auth/plugins/oauth-provider` |
-| Neon | `NEON_API_KEY` | `NeonAuthPhoneNumberConfig` | `enabled` | `GET /projects/{project_id}/branches/{branch_id}/auth/plugins/phone-number` |
+| Ideogram | `IDEOGRAM_API_KEY` | `GetApiProfilesResponse` ✅ | `profiles` | `GET /manage/api/profiles` |
+| Ideogram | `IDEOGRAM_API_KEY` | `ListDatasetsResponse` ✅ | `datasets` | `GET /datasets` |
+| Ideogram | `IDEOGRAM_API_KEY` | `ListModelsResponse` ✅ | `models` | `GET /models` |
+| LabelStudio | `LABEL_STUDIO_API_KEY` | `LseUserAPI` ✅ | `initials` | `GET /api/current-user` |
+| LabelStudio | `LABEL_STUDIO_API_KEY` | `Prediction` ✅ | `created_ago` | `GET /api/predictions/` |
+| LabelStudio | `LABEL_STUDIO_API_KEY` | `WhoAmIUser` ✅ | `initials` | `GET /api/current-user/whoami` |
 
-### Probes that create or change something — needs a throwaway resource or a cleanup step
+### Calls that need an id (32) — a fixture first
+
+| SDK | Key | Schema | Fields | Call |
+|-----|-----|--------|--------|------|
+| Anthropic | `ANTHROPIC_API_KEY` | `BetaModelInfo` | `lifecycle` | `GET /v1/models/{model_id}?beta=true (needs model_id)` |
+| Anthropic | `ANTHROPIC_API_KEY` | `BetaSelfHostedWorkQueueStats` | `pending` | `GET /v1/environments/{environment_id}/work/stats?beta=true (needs environment_id)` |
+| Anthropic | `ANTHROPIC_API_KEY` | `ModelInfo` | `lifecycle` | `GET /v1/models/{model_id} (needs model_id)` |
+| E2B | `E2B_API_KEY` | `SandboxLogsV2Response` | `logs` | `GET /v2/sandboxes/{sandboxID}/logs (needs sandboxID)` |
+| E2B | `E2B_API_KEY` | `TemplateBuildInfo` | `logEntries, logs` | `GET /templates/{templateID}/builds/{buildID}/status (needs buildID, templateID)` |
+| E2B | `E2B_API_KEY` | `TemplateBuildLogsResponse` | `logs` | `GET /templates/{templateID}/builds/{buildID}/logs (needs buildID, templateID)` |
+| ElevenLabs | `ELEVENLABS_API_KEY` | `BatchCallDetailedResponse` | `retry_count, total_calls_dispatched, total_calls_finished, total_calls_scheduled` | `GET /v1/convai/batch-calling/{batch_id} (needs batch_id)` |
+| Ideogram | `IDEOGRAM_API_KEY` | `GetApiKeysV2Response` | `api_keys` | `GET /manage/api/organization/api_keys (needs organization_id)` |
+| Ideogram | `IDEOGRAM_API_KEY` | `GetApiOrganizationUserSuggestionsResponse` | `user_suggestions` | `GET /manage/api/organization/user_suggestions (needs organization_id)` |
+| Ideogram | `IDEOGRAM_API_KEY` | `GetDatasetResponse` | `custom_model_ids, files` | `GET /datasets/{dataset_id} (needs dataset_id)` |
+| Ideogram | `IDEOGRAM_API_KEY` | `GetOrganizationMembersResponse` | `members` | `GET /manage/api/organization/members (needs organization_id)` |
+| Ideogram | `IDEOGRAM_API_KEY` | `ListOrganizationInvoicesResponse` | `invoices` | `GET /manage/api/organization/list_invoices (needs organization_id)` |
+| Julep | `JULEP_API_KEY` | `Chat.RenderResponse` | `docs` | `POST /sessions/{id}/render (needs id)` |
+| Julep | `JULEP_API_KEY` | `Common.ResourceDeletedResponse` | `jobs` | `DELETE /agents/{id} (needs id)` |
+| Julep | `JULEP_API_KEY` | `Docs.Doc` | `embeddings` | `POST /agents/{id}/docs (needs id)` |
+| Julep | `JULEP_API_KEY` | `Jobs.JobStatus` | `has_progress, name, progress, reason, state` | `GET /jobs/{id} (needs id)` |
+| Julep | `JULEP_API_KEY` | `Tasks.Task` | `description, inherit_tools, input_schema, tools` | `GET /agents/{id}/tasks (needs direction, id, limit, metadata_filter, offset, sort_by)` |
+| LabelStudio | `LABEL_STUDIO_API_KEY` | `Annotation` | `created_ago, created_username` | `GET /api/annotations/{id}/ (needs id)` |
+| LabelStudio | `LABEL_STUDIO_API_KEY` | `ModelInterfaceSerializerGET` | `runs_count, versions_count` | `GET /api/prompts/{id}/ (needs id)` |
+| LabelStudio | `LABEL_STUDIO_API_KEY` | `TaskSimple` | `annotations, predictions` | `GET /api/projects/{id}/tasks/ (needs id)` |
+| Neon | `NEON_API_KEY` | `NeonAuthMagicLinkConfig` | `disable_sign_up, enabled, expires_in` | `PATCH /projects/{project_id}/branches/{branch_id}/auth/plugins/magic-link (needs branch_id, project_id)` |
+| Neon | `NEON_API_KEY` | `NeonAuthOAuthProviderConfig` | `enabled` | `GET /projects/{project_id}/branches/{branch_id}/auth/plugins/oauth-provider (needs branch_id, project_id)` |
+| Neon | `NEON_API_KEY` | `NeonAuthOrganizationConfig` | `creator_role, enabled, membership_limit, organization_limit, send_invitation_email` | `PATCH /projects/{project_id}/branches/{branch_id}/auth/plugins/organization (needs branch_id, project_id)` |
+| Neon | `NEON_API_KEY` | `NeonAuthPhoneNumberConfig` | `enabled` | `GET /projects/{project_id}/branches/{branch_id}/auth/plugins/phone-number (needs branch_id, project_id)` |
+| OpenAI | `OPENAI_API_KEY` | `AutomationInvocationResource` | `skip_reason` | `POST /agents/automations/{automation_id}/invocations (needs automation_id)` |
+| Together | `TOGETHER_API_KEY` | `DE.Endpoint` | `visibility` | `POST /v2/projects/{projectId}/endpoints (needs projectId)` |
+| Together | `TOGETHER_API_KEY` | `DE.Model` | `visibility` | `POST /v2/projects/{projectId}/models (needs projectId)` |
+| Vectara | `VECTARA_API_KEY` | `AgentConnector` | `enabled` | `POST /v2/agent_aliases/{alias_key}/connectors (needs alias_key)` |
+| Vectara | `VECTARA_API_KEY` | `AgentSchedule` | `enabled` | `POST /v2/agents/{agent_key}/schedules (needs agent_key)` |
+| Vectara | `VECTARA_API_KEY` | `AgentSession` | `enabled` | `POST /v2/agents/{agent_key}/sessions (needs agent_key)` |
+| Vectara | `VECTARA_API_KEY` | `EndUserSession` | `enabled` | `POST /v2/agent_aliases/{alias_key}/end_user_sessions (needs alias_key)` |
+| Vectara | `VECTARA_API_KEY` | `PipelineRun` | `records_failed, records_fetched, records_processed, records_skipped` | `POST /v2/pipelines/{pipeline_key}/trigger (needs pipeline_key)` |
+
+### Calls that create or change something (27) — use the cleanup pattern above
 
 | SDK | Key | Schema | Fields | Call |
 |-----|-----|--------|--------|------|
 | Anthropic | `ANTHROPIC_API_KEY` | `BetaMessage` | `container, context_management, diagnostics, stop_details, stop_sequence` | `POST /v1/messages?beta=true` |
 | Anthropic | `ANTHROPIC_API_KEY` | `Message` | `container, diagnostics, stop_details, stop_sequence` | `POST /v1/messages` |
 | ElevenLabs | `ELEVENLABS_API_KEY` | `BatchCallResponse` | `retry_count, total_calls_dispatched, total_calls_finished, total_calls_scheduled` | `POST /v1/convai/batch-calling/submit` |
-| Julep | `JULEP_API_KEY` | `Chat.RenderResponse` | `docs` | `POST /sessions/{id}/render` |
-| Julep | `JULEP_API_KEY` | `Common.ResourceDeletedResponse` | `jobs` | `DELETE /agents/{id}` |
-| Julep | `JULEP_API_KEY` | `Docs.Doc` | `embeddings` | `POST /agents/{id}/docs` |
+| Julep | `JULEP_API_KEY` | `Agents.Agent` | `about, instructions, model` | `POST /agents` |
 | Julep | `JULEP_API_KEY` | `Files.File` | `description, mime_type` | `POST /files` |
 | Julep | `JULEP_API_KEY` | `Responses.Response` | `parallel_tool_calls, temperature, top_p` | `POST /responses` |
+| Julep | `JULEP_API_KEY` | `Sessions.Session` | `auto_run_tools, context_overflow, forward_tool_calls, render_templates, situation, summary, token_budget` | `POST /sessions` |
+| Julep | `JULEP_API_KEY` | `Users.User` | `about, name` | `POST /users` |
 | LabelStudio | `LABEL_STUDIO_API_KEY` | `LseInterface` | `projects_count` | `POST /api/interfaces/` |
-| Neon | `NEON_API_KEY` | `NeonAuthMagicLinkConfig` | `disable_sign_up, enabled, expires_in` | `PATCH /projects/{project_id}/branches/{branch_id}/auth/plugins/magic-link` |
-| Neon | `NEON_API_KEY` | `NeonAuthOrganizationConfig` | `creator_role, enabled, membership_limit, organization_limit, send_invitation_email` | `PATCH /projects/{project_id}/branches/{branch_id}/auth/plugins/organization` |
+| LabelStudio | `LABEL_STUDIO_API_KEY` | `LseUser` | `initials` | `POST /api/users/` |
 | OpenAI | `OPENAI_API_KEY` | `AssistantObject` | `tools` | `POST /assistants` |
-| OpenAI | `OPENAI_API_KEY` | `AutomationInvocationResource` | `skip_reason` | `POST /agents/automations/{automation_id}/invocations` |
 | OpenAI | `OPENAI_API_KEY` | `RunObject` | `tools` | `POST /threads/runs` |
 | Portkey | `PORTKEY_API_KEY` | `AssistantObject` | `tools` | `POST /assistants` |
 | Portkey | `PORTKEY_API_KEY` | `RunObject` | `tools` | `POST /threads/runs` |
-| Together | `TOGETHER_API_KEY` | `DE.Endpoint` | `visibility` | `POST /v2/projects/{projectId}/endpoints` |
-| Together | `TOGETHER_API_KEY` | `DE.Model` | `visibility` | `POST /v2/projects/{projectId}/models` |
 | Together | `TOGETHER_API_KEY` | `RL.TrainingSession` | `step` | `POST /v1/rl/training-sessions` |
 | Vectara | `VECTARA_API_KEY` | `Agent` | `enabled` | `POST /v2/agents` |
-| Vectara | `VECTARA_API_KEY` | `AgentConnector` | `enabled` | `POST /v2/agent_aliases/{alias_key}/connectors` |
-| Vectara | `VECTARA_API_KEY` | `AgentSchedule` | `enabled` | `POST /v2/agents/{agent_key}/schedules` |
-| Vectara | `VECTARA_API_KEY` | `AgentSession` | `enabled` | `POST /v2/agents/{agent_key}/sessions` |
-| Vectara | `VECTARA_API_KEY` | `EndUserSession` | `enabled` | `POST /v2/agent_aliases/{alias_key}/end_user_sessions` |
 | Vectara | `VECTARA_API_KEY` | `Pipeline` | `enabled` | `POST /v2/pipelines` |
-| Vectara | `VECTARA_API_KEY` | `PipelineRun` | `records_failed, records_fetched, records_processed, records_skipped` | `POST /v2/pipelines/{pipeline_key}/trigger` |
 | Vectara | `VECTARA_API_KEY` | `ToolServer` | `enabled, transport` | `POST /v2/tool_servers` |
 | Vectara | `VECTARA_API_KEY` | `TrustedTokenIssuer` | `enabled` | `POST /v2/trusted_token_issuers` |
 | Weave | `WEAVE_API_KEY` | `AgentConversationChatRes` | `has_more, limit, offset, total_turns` | `POST /agents/conversations/chat` |
@@ -106,8 +162,8 @@ directly by a response, so it has no direct probe.
 
 ### Reached only through another schema (143)
 
-These have no response that names them directly, so a probe has to go through a parent schema.
-Worth covering only once the direct ones are done.
+No response names these directly, so a probe has to go through a parent schema. Worth covering
+last.
 
 - **Anthropic**: 74 schemas, e.g. `APIError`
 - **E2B**: 1 schema, e.g. `TeamUser`

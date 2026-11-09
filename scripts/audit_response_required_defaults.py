@@ -106,6 +106,23 @@ def is_discriminator(field: str, prop: dict) -> bool:
     return field == "type"
 
 
+PARAM_REF = re.compile(r"^#/components/parameters/(.+)$")
+
+
+def resolve_parameter(param: object, doc: dict) -> dict | None:
+    """Follow a `$ref` into components/parameters, which specs use for shared path parameters."""
+    if not isinstance(param, dict):
+        return None
+    ref = param.get("$ref")
+    if isinstance(ref, str):
+        match = PARAM_REF.match(ref)
+        if not match:
+            return None
+        resolved = ((doc.get("components") or {}).get("parameters") or {}).get(match.group(1))
+        return resolved if isinstance(resolved, dict) else None
+    return param
+
+
 def response_entry_points(doc: dict, schemas: dict) -> dict[str, list[str]]:
     """Map each schema named directly by a response body to the operations that return it."""
     entry_points: dict[str, list[str]] = {}
@@ -122,8 +139,27 @@ def response_entry_points(doc: dict, schemas: dict) -> dict[str, list[str]]:
                 if not isinstance(response, dict) or not str(status).startswith("2"):
                     continue
                 collect_refs(response, named)
+
+            # A call that needs ids cannot be a bare probe: it needs a fixture first. Path and
+            # query parameters come from the operation and from the path item it sits under.
+            resolved_params = [
+                resolved
+                for source in (item.get("parameters") or [], operation.get("parameters") or [])
+                for param in source
+                if (resolved := resolve_parameter(param, doc)) is not None
+            ]
+            required_params = sorted({
+                param["name"]
+                for param in resolved_params
+                if param.get("name")
+                # A path parameter is required by definition, whether or not the spec says so.
+                and (param.get("in") == "path"
+                     or (param.get("in") == "query" and param.get("required")))
+            })
+            suffix = f" (needs {', '.join(required_params)})" if required_params else ""
+
             for name in named:
-                entry_points.setdefault(name, []).append(f"{method.upper()} {route}")
+                entry_points.setdefault(name, []).append(f"{method.upper()} {route}{suffix}")
     return entry_points
 
 
@@ -193,13 +229,19 @@ def main() -> int:
             for schema, field in hits:
                 by_schema.setdefault(schema, []).append(field)
             # Schemas a response names directly come first: those are the reachable probes.
-            ordered = sorted(
-                by_schema.items(),
-                key=lambda kv: (0 if kv[0] in entry_points else 1, kv[0]),
-            )
+            # Bare probes first, then calls that need ids, then schemas with no direct response.
+            def rank(schema: str) -> tuple[int, str]:
+                routes = entry_points.get(schema)
+                if not routes:
+                    return (2, schema)
+                return (1 if all("(needs " in route for route in routes) else 0, schema)
+
+            ordered = sorted(by_schema.items(), key=lambda kv: rank(kv[0]))
             for schema, fields in ordered:
                 routes = entry_points.get(schema)
-                where = routes[0] if routes else "reached only through another schema"
+                # Prefer a call that needs nothing: that is the one a probe can make as-is.
+                bare = [route for route in routes or [] if "(needs " not in route]
+                where = (bare or routes or ["reached only through another schema"])[0]
                 print(f"    {schema} ({', '.join(sorted(fields))}) <- {where}")
         elif args.list:
             for schema, field in hits:
