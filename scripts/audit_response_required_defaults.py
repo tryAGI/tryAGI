@@ -106,6 +106,27 @@ def is_discriminator(field: str, prop: dict) -> bool:
     return field == "type"
 
 
+def response_entry_points(doc: dict, schemas: dict) -> dict[str, list[str]]:
+    """Map each schema named directly by a response body to the operations that return it."""
+    entry_points: dict[str, list[str]] = {}
+    for route, item in (doc.get("paths") or {}).items():
+        if not isinstance(item, dict):
+            continue
+        for method, operation in item.items():
+            if not isinstance(operation, dict) or method.lower() not in {
+                "get", "put", "post", "delete", "options", "head", "patch", "trace"
+            }:
+                continue
+            named: set[str] = set()
+            for status, response in (operation.get("responses") or {}).items():
+                if not isinstance(response, dict) or not str(status).startswith("2"):
+                    continue
+                collect_refs(response, named)
+            for name in named:
+                entry_points.setdefault(name, []).append(f"{method.upper()} {route}")
+    return entry_points
+
+
 def audit(path: pathlib.Path) -> list[tuple[str, str]]:
     doc = load_spec(path)
     if not isinstance(doc, dict):
@@ -147,6 +168,11 @@ def main() -> int:
     parser.add_argument("--spec", type=pathlib.Path, help="audit a single spec instead of the whole workspace")
     parser.add_argument("--min", type=int, default=1, help="only report specs with at least this many hits")
     parser.add_argument("--list", action="store_true", help="list every schema and field, not just a summary")
+    parser.add_argument(
+        "--endpoints",
+        action="store_true",
+        help="name a 2xx operation that returns each flagged schema, so a live probe knows what to call",
+    )
     args = parser.parse_args()
 
     specs = [args.spec] if args.spec else discover_specs()
@@ -159,7 +185,23 @@ def main() -> int:
         affected += 1
         relative = path.relative_to(WORKSPACE) if path.is_relative_to(WORKSPACE) else path
         print(f"{relative}: {len(hits)} response fields are required and have a default")
-        if args.list:
+        if args.endpoints:
+            doc = load_spec(path) or {}
+            schemas = (doc.get("components") or {}).get("schemas") or {}
+            entry_points = response_entry_points(doc, schemas)
+            by_schema: dict[str, list[str]] = {}
+            for schema, field in hits:
+                by_schema.setdefault(schema, []).append(field)
+            # Schemas a response names directly come first: those are the reachable probes.
+            ordered = sorted(
+                by_schema.items(),
+                key=lambda kv: (0 if kv[0] in entry_points else 1, kv[0]),
+            )
+            for schema, fields in ordered:
+                routes = entry_points.get(schema)
+                where = routes[0] if routes else "reached only through another schema"
+                print(f"    {schema} ({', '.join(sorted(fields))}) <- {where}")
+        elif args.list:
             for schema, field in hits:
                 print(f"    {schema}.{field}")
         else:
