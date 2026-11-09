@@ -38,6 +38,25 @@ is "the spec demands something the service does not send", and only live traffic
 Both are fixed in that SDK's `generate.sh`, and `autosdk generate --relax-response-required All`
 now exists for the case where listing such fields is not worth it.
 
+## Does `All` belong on the container-backed SDKs?
+
+Measured 2026-11-10, per spec: how many response fields the spec actually enforces (`required`
+minus discriminators), against how much of the surface the live tests touch.
+
+| SDK | Enforced required response fields | Live tests | Operations | Verdict |
+|-----|-----------------------------------|-----------|------------|---------|
+| Qdrant | 257 | 4 | 72 | the one real exposure — most to enforce, least evidence |
+| Chroma | 70 | 17 | 34 | half the surface covered live and clean |
+| Ollama | 30 | 24 | 22 | covered live and clean |
+| Milvus | 21 | 4 | 50 | little to enforce |
+| Weaviate | 0 | 4 | 60 | `All` would do nothing at all |
+
+None of the five has a single `required`-with-`default` candidate, so `Defaulted` has nothing to do
+there either. `All` would be prophylactic: there is no observed failure on any of them, and it
+trades the contract for resilience sight unseen. The cheaper move is more live coverage, which costs
+nothing here — Qdrant enforces 257 response fields behind four tests, and its container needs no
+key.
+
 **Container-backed SDKs need no key at all.** Chroma, Qdrant, Weaviate, Milvus and Ollama all spin
 up a real service through Testcontainers, so their responses can be settled with Docker alone. Run
 on 2026-11-10: Chroma 17/17, Qdrant 4/4, Weaviate 4/4, Milvus 4/4 — 29 live tests, no failures and
