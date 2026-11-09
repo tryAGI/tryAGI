@@ -35,7 +35,14 @@ deserialize its own HTTP 201. Neither was in the candidate list: `UserSimple.use
 with **no default**, and `LseProjectCreate`'s counters are non-nullable integers the API sends as
 null. So `required` + `default` is one slice of the defect, not the whole of it - the general shape
 is "the spec demands something the service does not send", and only live traffic finds the rest.
-Both are fixed in that SDK's `generate.sh`.
+Both are fixed in that SDK's `generate.sh`, and `autosdk generate --relax-response-required All`
+now exists for the case where listing such fields is not worth it.
+
+**Container-backed SDKs need no key at all.** Chroma, Qdrant, Weaviate, Milvus and Ollama all spin
+up a real service through Testcontainers, so their responses can be settled with Docker alone. Run
+on 2026-11-10: Chroma 17/17, Qdrant 4/4, Weaviate 4/4, Milvus 4/4 — 29 live tests, no failures and
+no new defects. Ollama was skipped: its container pulls a model, which costs gigabytes rather than
+seconds.
 
 **Done:** all six bare probes — three in Ideogram (`GetApiProfilesResponse`, `ListDatasetsResponse`,
 `ListModelsResponse`) and three in LabelStudio (`LseUserAPI`, `WhoAmIUser`, `Prediction`). They
