@@ -39,6 +39,25 @@ Most SDKs have clean `generate.sh` scripts. The following require workarounds du
 | Vapi | `jq`: 7 fixes — LMNTVoice oneOf flatten (#206), operator/punctuation enums, discriminator mappings, 11labs rename, enum dedup, duplicate param rename | Enum/schema fix |
 | SmallestAI | `yq`: declare the documented `application/json` `{"url": ...}` STT request variant; `--required-path /waves/v1/stt/` guards the Fern spec selection. Handcrafted `asyncapi.yaml` for both WebSocket channels (no upstream AsyncAPI) | Schema injection / handcrafted spec |
 
+## Auditing for the Next `caller`
+
+`scripts/audit_response_required_defaults.py` lists response fields a spec declares **required**
+while also giving them a **default** — the shape that made every Anthropic server-tool response
+throw on a successful HTTP 200. The generated deserializers enforce `required`, so a field the
+service omits is a hard failure, and a documented default is the spec saying the producer may omit
+it.
+
+```bash
+python3 scripts/audit_response_required_defaults.py --min 5
+python3 scripts/audit_response_required_defaults.py --spec OpenAI/src/libs/tryAGI.OpenAI/openapi.yaml --list
+```
+
+As of 2026-11-10, 23 of 224 specs have candidates (13 with five or more). They are **candidates, not
+defects** — plenty of services do send a field that has a default (`UsageInfo.prompt_tokens`). A hit
+means "that surface needs a live test", and only a real response settles it. For Anthropic every
+candidate reachable from a tested surface is clean: `citations`, `diagnostics`/`cache_miss_reason`
+and `container` were each confirmed live.
+
 ## Post-Generation Fixes
 
 None — all post-generation workarounds eliminated in AutoSDK dev.154.
