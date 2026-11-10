@@ -73,7 +73,7 @@ deliberately invalid key and comparing the real body against the spec:
 | Gladia | `{statusCode, timestamp, path, message, request_id}` | **spec correct** — it really does mix `statusCode` with `request_id` |
 | NariLabs | `{error:{code, message, requestId}}` | **spec correct** — all three required fields arrive |
 | E2B | `{code, message}` | **spec correct** — `error_code` is an extra optional property, not the one required |
-| Polar | a Tomcat HTML page, not JSON | no typed error is possible; the body reaches callers through `ApiException.ResponseBody` |
+| Polar | a Tomcat HTML page, not JSON | auth is checked before routing, so *every* credential-less response is that page — wrong path, wrong method, root, even with `Accept: application/json`. The typed error cannot be exercised at all without a key |
 | CsmAi | `api.csm.ai` did not connect | unchecked |
 | Algolia | host is per-application (`ALGOLIA_APPLICATION_ID.algolia.net`) | not reachable generically |
 
@@ -82,10 +82,25 @@ describing an API that genuinely mixes casing. That is the opposite of what the 
 and it is the point of the exercise: the detector narrows where to look, and only a real response
 decides. Treat its output as a worklist, never as a defect list.
 
+### A gateway's error is not the service's error
+
+D-ID sits behind AWS API Gateway, which rejects a malformed `Authorization` header before the app
+sees it and answers `{"message": ...}` — nothing like D-ID's own `JsonError`, whose `kind` and
+`description` are both required. So an authentication failure there produces a body the typed error
+cannot read, the same class of problem as Polar's HTML but in JSON. Recognise a gateway by its
+wording: "Credential parameter", "Missing Authentication Token".
+
+This also bounds what the invalid-key technique can prove. It settles the app's own error schema
+only once you have established that you are talking to the app.
+
 ### Requests deviate too, and fail more quietly
 
 Run with `--all`, the detector also covers schemas only a request body reaches: 76 more schemas
-across 26 specs (D-ID alone has 19). A wrong name there does not throw — it sends a key the service
+across 26 specs. D-ID alone has 21 counting both directions, and they split in two: `IceCandidate`
+(`sdpMLineIndex`, `sdpMid`) is WebRTC and `Omit_IPineconeQueryConfig_*` is Pinecone, both camelCase
+by right, while the rest are D-ID's own types and need a key to settle — its spec is only 88%
+snake_case, close enough to the threshold that the API may simply mix casing, as Gladia's does. A
+wrong name in a request does not throw — it sends a key the service
 ignores, so the request silently does something other than what the caller asked. Worth a pass once
 the response side is settled.
 
