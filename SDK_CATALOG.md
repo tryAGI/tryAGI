@@ -13,6 +13,7 @@ Full list of all projects in the tryAGI workspace, organized by category.
 | `SdkTemplate/` | Template/scaffold repository for initializing new AutoSDK-based SDK projects. |
 | `Tiktoken/` | High-performance .NET port of OpenAI's Tiktoken tokenizer (o200k_base, cl100k_base, r50k_base, p50k_base). |
 | `openai-dotnet/` | Fork/mirror of the official OpenAI .NET library (Microsoft collaboration). |
+| `Jint/` | **Not an SDK and not AutoSDK-generated.** Republishes unmodified [sebastienros/jint](https://github.com/sebastienros/jint) builds to nuget.org as `tryAGI.Jint`, because upstream ships Jint 5 previews only to its feedz.io feed, which prunes old builds so a pinned preview stops restoring within days. The repository holds no source: just `publish.yml`, which builds upstream at a commit and pushes `5.0.0-preview.<upstream commit count>`. Assembly name, namespace and strong-name key stay upstream's, so consumers only swap the `PackageReference`. Publishing needs a nuget.org trusted-publishing policy that nothing in the repo can create; the required fields are in that repo's README. |
 
 ## 2. LangChain Ecosystem
 
