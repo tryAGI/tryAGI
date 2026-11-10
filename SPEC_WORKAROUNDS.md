@@ -8,7 +8,8 @@ Most SDKs have clean `generate.sh` scripts. The following require workarounds du
 
 | SDK | Workaround | Category |
 |-----|-----------|----------|
-| Anthropic | `jq`: inject Ping into `MessageStreamEvent` and `BetaMessageStreamEvent` (a ping would otherwise end the stream); tag `?beta=true` path keys with `x-autosdk-path` so the disambiguator is not sent as a query parameter; drop `caller` from every schema's `required` (the API omits it on response tool-use blocks, so any server-tool response failed to deserialize) | Schema injection / path override / required fix |
+| Anthropic | `jq`: inject Ping into `MessageStreamEvent` and `BetaMessageStreamEvent` (a ping would otherwise end the stream); tag `?beta=true` path keys with `x-autosdk-path` so the disambiguator is not sent as a query parameter; drop `caller` from every schema's `required` (the API omits it on response tool-use blocks, so any server-tool response failed to deserialize); declare `text/event-stream` on the four streaming operations, which is what makes AutoSDK generate the SSE transport instead of leaving it hand-written | Schema injection / path override / required fix / stream declaration |
+| Groq | `yq`: declare `text/event-stream` on `POST /openai/v1/chat/completions` (the spec accepts `stream: true` but declares only `application/json`, so no streaming method was generated) | Stream declaration |
 | Google.Gemini | `python3`: Discovery→OpenAPI conversion, enum fix, endpoint/schema pruning | Format conversion |
 | HuggingFace | `python3`: emoji/quote enum chars, `_`-prefixed property dedup, OpenAPI 3.1 compat | Enum/property fix |
 | RetellAI | `python3`: comparator enum dedup, EquationCondition `\|\|`/`&&` rename | Enum fix |
