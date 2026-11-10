@@ -38,6 +38,39 @@ is "the spec demands something the service does not send", and only live traffic
 Both are fixed in that SDK's `generate.sh`, and `autosdk generate --relax-response-required All`
 now exists for the case where listing such fields is not worth it.
 
+## The other half: names the spec spells differently from the server
+
+A required field the server omits is one way a response fails. The other is a field whose *name* the
+spec gets wrong — the generated model looks for a key that never arrives, and when the field is
+required, deserializing a successful HTTP 200 throws. Milvus's `POST /v2/vectordb/roles/describe`
+was unusable that way: the spec said `object_type`, `object_name`, `db_name`; the server sends
+`objectType`, `objectName`, `dbName`.
+
+`scripts/audit_property_casing.py` finds the static tell — a schema whose property names break the
+casing convention its own document otherwise follows:
+
+```bash
+python3 scripts/audit_property_casing.py                    # whole workspace
+python3 scripts/audit_property_casing.py --spec <spec>       # one spec
+```
+
+45 of 224 specs have at least one such schema. **That is not 45 defects.** The common innocent cause
+is a schema mirroring a foreign protocol, where the deviation is correct: MCP is camelCase
+(`MCPTool`, `ToolAnnotations` in Mistral, Letta, RetellAI, ElevenLabs), so is A2A (31 schemas in
+Vectara) and OTLP (PromptLayer). Those are right as they stand.
+
+The hits worth a probe are deviations with no protocol behind them, especially in error and status
+wrappers — the shape nobody exercises, which is exactly where the Milvus bug lived:
+
+| SDK | Schema | Deviating field |
+|-----|--------|-----------------|
+| Gladia | six `*ErrorResponse` schemas | `statusCode` |
+| CsmAi | four envelopes | `statusCode` |
+| E2B | `Error` | `error_code` (in a camelCase spec) |
+| Polar | `error` | `corrId`, `errorType` |
+| Algolia | `baseSearchResponse` | `facets_stats` |
+| NariLabs | `ErrorResponseError` | `requestId` |
+
 ## Does `All` belong on the container-backed SDKs?
 
 Measured 2026-11-10, per spec: how many response fields the spec actually enforces (`required`
