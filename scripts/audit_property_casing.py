@@ -48,6 +48,40 @@ _spec.loader.exec_module(_audit)
 SNAKE = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)+$")
 CAMEL = re.compile(r"^[a-z][a-z0-9]*([A-Z][a-z0-9]*)+$")
 
+# Schemas that mirror a protocol with its own casing. Their deviation is correct, and they are the
+# bulk of the noise: MCP, A2A, OTLP and Tempo traces are camelCase wherever they are embedded.
+# Matched as name prefixes, because that is how these schemas are named in practice
+# (`MCPTool`, `A2aV1AgentCard`, `TempoTraceSpan`, `OtlpExportTraceServiceResponse`).
+FOREIGN_PROTOCOL_PREFIXES = (
+    "mcp",
+    "a2a",
+    "otlp",
+    "opentelemetry",
+    "jsonrpc",
+    "tempotrace",
+)
+
+# Protocol material whose name carries no prefix, for the same reason.
+FOREIGN_PROTOCOL_EXACT = {
+    "toolannotations",
+    "toolexecution",
+    "resourcelink",
+    "blobresourcecontents",
+    "textresourcecontents",
+    "audiocontent",
+    "imagecontent",
+    "icon",
+    "tool",
+}
+
+
+def is_foreign_protocol_schema(name: str) -> bool:
+    """True when a schema mirrors a protocol that legitimately uses another casing."""
+    bare = name.replace(".", "").replace("-", "").replace("_", "").lower()
+    # Strip a trailing Fern-style direction suffix so `MCPTool-Output` matches too.
+    bare = re.sub(r"(output|input)$", "", bare)
+    return bare in FOREIGN_PROTOCOL_EXACT or bare.startswith(FOREIGN_PROTOCOL_PREFIXES)
+
 
 def casing(name: str) -> str | None:
     """snake, camel, or None when the name carries no signal."""
@@ -58,7 +92,12 @@ def casing(name: str) -> str | None:
     return None
 
 
-def audit(path: pathlib.Path, response_only: bool, min_dominance: float) -> tuple[str, float, list[tuple[str, list[str]]]]:
+def audit(
+    path: pathlib.Path,
+    response_only: bool,
+    min_dominance: float,
+    include_protocol_schemas: bool = False,
+) -> tuple[str, float, list[tuple[str, list[str]]]]:
     doc = _audit.load_spec(path)
     if not isinstance(doc, dict):
         return ("", 0.0, [])
@@ -96,6 +135,8 @@ def audit(path: pathlib.Path, response_only: bool, min_dominance: float) -> tupl
         schema = schemas.get(name)
         if not isinstance(schema, dict):
             continue
+        if not include_protocol_schemas and is_foreign_protocol_schema(name):
+            continue
         deviating = [
             prop for prop in (schema.get("properties") or {})
             if casing(prop) not in (None, dominant)
@@ -118,6 +159,11 @@ def main() -> int:
     parser.add_argument("--spec", type=pathlib.Path, help="audit a single spec instead of the whole workspace")
     parser.add_argument("--all", action="store_true", help="include schemas only a request body reaches")
     parser.add_argument(
+        "--include-protocol-schemas",
+        action="store_true",
+        help="keep MCP/A2A/OTLP schemas, whose deviation is correct and is most of the noise",
+    )
+    parser.add_argument(
         "--min-dominance",
         type=float,
         default=0.8,
@@ -129,7 +175,12 @@ def main() -> int:
 
     affected = 0
     for path in specs:
-        dominant, dominance, offenders = audit(path, response_only=not args.all, min_dominance=args.min_dominance)
+        dominant, dominance, offenders = audit(
+            path,
+            response_only=not args.all,
+            min_dominance=args.min_dominance,
+            include_protocol_schemas=args.include_protocol_schemas,
+        )
         if not offenders:
             continue
         affected += 1

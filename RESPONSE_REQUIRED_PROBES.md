@@ -59,17 +59,35 @@ is a schema mirroring a foreign protocol, where the deviation is correct: MCP is
 (`MCPTool`, `ToolAnnotations` in Mistral, Letta, RetellAI, ElevenLabs), so is A2A (31 schemas in
 Vectara) and OTLP (PromptLayer). Those are right as they stand.
 
-The hits worth a probe are deviations with no protocol behind them, especially in error and status
-wrappers — the shape nobody exercises, which is exactly where the Milvus bug lived:
+`--include-protocol-schemas` keeps them; by default they are filtered, which removes about a third
+of the hits (173 schemas down to 117).
 
-| SDK | Schema | Deviating field |
-|-----|--------|-----------------|
-| Gladia | six `*ErrorResponse` schemas | `statusCode` |
-| CsmAi | four envelopes | `statusCode` |
-| E2B | `Error` | `error_code` (in a camelCase spec) |
-| Polar | `error` | `corrId`, `errorType` |
-| Algolia | `baseSearchResponse` | `facets_stats` |
-| NariLabs | `ErrorResponseError` | `requestId` |
+### What checking them live actually showed
+
+An error envelope is the one response you can read **without credentials** — it is what the service
+answers an invalid key with. So the six error-wrapper candidates were checked by sending a
+deliberately invalid key and comparing the real body against the spec:
+
+| SDK | Live body on 401 | Verdict |
+|-----|------------------|---------|
+| Gladia | `{statusCode, timestamp, path, message, request_id}` | **spec correct** — it really does mix `statusCode` with `request_id` |
+| NariLabs | `{error:{code, message, requestId}}` | **spec correct** — all three required fields arrive |
+| E2B | `{code, message}` | **spec correct** — `error_code` is an extra optional property, not the one required |
+| Polar | a Tomcat HTML page, not JSON | no typed error is possible; the body reaches callers through `ApiException.ResponseBody` |
+| CsmAi | `api.csm.ai` did not connect | unchecked |
+| Algolia | host is per-application (`ALGOLIA_APPLICATION_ID.algolia.net`) | not reachable generically |
+
+So **none of the four reachable candidates was a defect**, and three of them are specs faithfully
+describing an API that genuinely mixes casing. That is the opposite of what the static hit suggested
+and it is the point of the exercise: the detector narrows where to look, and only a real response
+decides. Treat its output as a worklist, never as a defect list.
+
+### Requests deviate too, and fail more quietly
+
+Run with `--all`, the detector also covers schemas only a request body reaches: 76 more schemas
+across 26 specs (D-ID alone has 19). A wrong name there does not throw — it sends a key the service
+ignores, so the request silently does something other than what the caller asked. Worth a pass once
+the response side is settled.
 
 ## Does `All` belong on the container-backed SDKs?
 
