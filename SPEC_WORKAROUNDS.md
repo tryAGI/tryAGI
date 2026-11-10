@@ -2,6 +2,36 @@
 
 SDK spec fix inventory and auth runtime hooks. When regenerating, **always use the existing `generate.sh`** — don't run `autosdk generate` directly.
 
+## Blocked: Mistral's spec source
+
+The old source (`mistralai/platform-docs-public`) **404s**, so `Mistral/src/libs/Mistral/generate.sh`
+cannot run at all. Mistral's own docs still publish one, at `https://docs.mistral.ai/openapi.yaml`
+(same title and version, 252 paths against the committed 131).
+
+Switching is not a URL swap, and the switch is currently blocked on three AutoSDK codegen defects
+that the larger document exposes. Generating from it produced 280 compile errors where the committed
+spec builds clean:
+
+| Error | What the generator did |
+|-------|------------------------|
+| `CS8785` | the STJ `JsonSourceGenerator` crashed - `ArgumentException: An item with the same key has already been added. Key: SourceGenerators.TypeRef`, i.e. a type is registered twice in one serializer context. This is the root cause of all 264 `CS0534`s, since the crash means no context gets its generated half |
+| `CS0305` | `AnyOf<T1..T6>` emitted with the wrong arity (`Mistral.IBetaContextSearchIndexesClient.GenerateASummaryFieldForAManagedIndex`, `Mistral.PartitionCore.JsonSerializerContext`) |
+| `CS0542` | `Mistral.Models.Match` has a member named `Match`, the same as its enclosing type |
+
+Two other things the switch needs, both solved and parked in the scratchpad rather than committed:
+
+- **22 live paths are missing from the new document** - all of fine-tuning *jobs*, all of
+  observability, and `/v1/workflows/workers/whoami`. They are live: each answers
+  `401 {"detail":"Invalid API Key"}` to a deliberately invalid key, where a nonexistent route
+  answers a gateway `404 {"message":"no Route matched with those values"}`. A straight swap would
+  delete 22 working endpoints, so they have to be carried forward from a pinned copy of the old
+  spec, along with every component they reference and the four Voxtral Realtime client-message
+  schemas (which no path reaches, so reachability cannot find them).
+- **Six paths carry a disambiguator fragment** (`/v1/conversations#stream`,
+  `/v1/connectors/{connector_id_or_name}#idOrName`): the new document keys its streaming operations
+  as separate path items, which is how a spec declares two operations on one path and method. Those
+  need `x-autosdk-path` or the fragment is sent to the service as part of the URL.
+
 ## Spec-Level Fixes (Pre-Generation)
 
 Most SDKs have clean `generate.sh` scripts. The following require workarounds due to upstream spec issues or AutoSDK limitations.
@@ -10,6 +40,9 @@ Most SDKs have clean `generate.sh` scripts. The following require workarounds du
 |-----|-----------|----------|
 | Anthropic | `jq`: inject Ping into `MessageStreamEvent` and `BetaMessageStreamEvent` (a ping would otherwise end the stream); tag `?beta=true` path keys with `x-autosdk-path` so the disambiguator is not sent as a query parameter; drop `caller` from every schema's `required` (the API omits it on response tool-use blocks, so any server-tool response failed to deserialize); declare `text/event-stream` on the four streaming operations, which is what makes AutoSDK generate the SSE transport instead of leaving it hand-written | Schema injection / path override / required fix / stream declaration |
 | Groq | `yq`: declare `text/event-stream` on `POST /openai/v1/chat/completions` (the spec accepts `stream: true` but declares only `application/json`, so no streaming method was generated) | Stream declaration |
+| Martian | `yq`: declare `text/event-stream` on `POST /v1/chat/completions`, pointing at `ChatCompletionChunkResponse` | Stream declaration |
+| Portkey | `yq`: declare `text/event-stream` on `POST /chat/completions`, pointing at `CreateChatCompletionStreamResponse` | Stream declaration |
+| Upstage | `yq`: declare `text/event-stream` on `POST /chat/completions`, pointing at `ChatCompletionChunkResponse` | Stream declaration |
 | Google.Gemini | `python3`: Discovery→OpenAPI conversion, enum fix, endpoint/schema pruning | Format conversion |
 | HuggingFace | `python3`: emoji/quote enum chars, `_`-prefixed property dedup, OpenAPI 3.1 compat | Enum/property fix |
 | RetellAI | `python3`: comparator enum dedup, EquationCondition `\|\|`/`&&` rename | Enum fix |
