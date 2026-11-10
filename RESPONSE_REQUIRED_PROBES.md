@@ -59,8 +59,17 @@ is a schema mirroring a foreign protocol, where the deviation is correct: MCP is
 (`MCPTool`, `ToolAnnotations` in Mistral, Letta, RetellAI, ElevenLabs), so is A2A (31 schemas in
 Vectara) and OTLP (PromptLayer). Those are right as they stand.
 
-`--include-protocol-schemas` keeps them; by default they are filtered, which removes about a third
-of the hits (173 schemas down to 117).
+`--include-protocol-schemas` keeps them; by default they are filtered — MCP, A2A, OTLP, Tempo
+traces, Pinecone embedded whole into another spec, and WebRTC, whose `sdpMLineIndex` and `sdpMid`
+are the names in the standard itself.
+
+**Dominance is not the lever; isolation is.** Raising `--min-dominance` sounds right and is not:
+the one proven defect, Milvus, sits at 84% camelCase while D-ID's noise sits at 88%, so a higher
+threshold drops the true positive and keeps the noise. What separates them is how *isolated* the
+deviation is — Milvus is one schema in 12, D-ID is two in five. `--max-deviation-share` (default
+0.25) drops a spec whose deviation is that widespread, because past that point the spec simply
+mixes casing and there is no convention to break. Together with the protocol filter: 173 schemas
+down to 111.
 
 ### What checking them live actually showed
 
@@ -81,6 +90,18 @@ So **none of the four reachable candidates was a defect**, and three of them are
 describing an API that genuinely mixes casing. That is the opposite of what the static hit suggested
 and it is the point of the exercise: the detector narrows where to look, and only a real response
 decides. Treat its output as a worklist, never as a defect list.
+
+### What the SDK does with a body that is not JSON
+
+Both of those bodies are survivable, and the generated code already handles them: the error-body
+parse is wrapped, the failure becomes the exception's `InnerException`, and the caller gets the
+typed exception with the raw body on `ResponseBody` and `ResponseObject` left null. Verified with a
+stub that answers an HTML 401.
+
+The hand-written streaming path in `tryAGI.Anthropic` did **not**: it parsed the error body
+directly, so an HTML error reached the caller as a bare `JsonException` with the body nowhere to be
+found. Fixed, and both paths now have a test. Worth checking in any SDK that hand-writes a
+streaming or SSE transport rather than taking the generated one.
 
 ### A gateway's error is not the service's error
 

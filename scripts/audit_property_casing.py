@@ -59,6 +59,10 @@ FOREIGN_PROTOCOL_PREFIXES = (
     "opentelemetry",
     "jsonrpc",
     "tempotrace",
+    # Vendors embedded whole into another spec, carrying their own casing with them.
+    "pinecone",
+    "omit_ipinecone",
+    "pick_ipinecone",
 )
 
 # Protocol material whose name carries no prefix, for the same reason.
@@ -72,6 +76,14 @@ FOREIGN_PROTOCOL_EXACT = {
     "imagecontent",
     "icon",
     "tool",
+    # WebRTC: `sdpMLineIndex` and `sdpMid` are the names in the standard itself.
+    "icecandidate",
+    "icecandidateinit",
+    "rtcicecandidate",
+    "rtcicecandidateinit",
+    "sessiondescription",
+    "rtcsessiondescription",
+    "rtcsessiondescriptioninit",
 }
 
 
@@ -80,7 +92,11 @@ def is_foreign_protocol_schema(name: str) -> bool:
     bare = name.replace(".", "").replace("-", "").replace("_", "").lower()
     # Strip a trailing Fern-style direction suffix so `MCPTool-Output` matches too.
     bare = re.sub(r"(output|input)$", "", bare)
-    return bare in FOREIGN_PROTOCOL_EXACT or bare.startswith(FOREIGN_PROTOCOL_PREFIXES)
+    if bare in FOREIGN_PROTOCOL_EXACT or bare.startswith(FOREIGN_PROTOCOL_PREFIXES):
+        return True
+    # TypeScript-derived specs wrap vendor types in Omit_/Pick_ helpers, so the token is in the
+    # middle of the name rather than at the front.
+    return any(token in bare for token in ("pinecone", "webrtc", "icecandidate"))
 
 
 def casing(name: str) -> str | None:
@@ -97,6 +113,7 @@ def audit(
     response_only: bool,
     min_dominance: float,
     include_protocol_schemas: bool = False,
+    max_deviation_share: float | None = None,
 ) -> tuple[str, float, list[tuple[str, list[str]]]]:
     doc = _audit.load_spec(path)
     if not isinstance(doc, dict):
@@ -130,6 +147,11 @@ def audit(
 
     considered = set(schemas) if not response_only else _audit.response_reachable_schemas(doc, schemas)
 
+    with_properties = [
+        name for name in considered
+        if isinstance(schemas.get(name), dict) and (schemas[name].get("properties"))
+    ]
+
     offenders = []
     for name in sorted(considered):
         schema = schemas.get(name)
@@ -143,6 +165,12 @@ def audit(
         ]
         if deviating:
             offenders.append((name, sorted(deviating)))
+
+    if max_deviation_share is not None and with_properties:
+        share = len(offenders) / len(with_properties)
+        if share > max_deviation_share:
+            # The spec mixes casing throughout, so no schema is breaking a convention.
+            return (dominant, dominance, [])
 
     return (dominant, dominance, offenders)
 
@@ -159,6 +187,16 @@ def main() -> int:
     parser.add_argument("--spec", type=pathlib.Path, help="audit a single spec instead of the whole workspace")
     parser.add_argument("--all", action="store_true", help="include schemas only a request body reaches")
     parser.add_argument(
+        "--max-deviation-share",
+        type=float,
+        default=0.25,
+        help=(
+            "drop a spec when this share of its considered schemas deviate (default 0.25): past "
+            "that the spec simply mixes casing and there is no convention to break. Measured: the "
+            "one proven defect (Milvus) is 8%% of its schemas, while D-ID's noise is 40%%"
+        ),
+    )
+    parser.add_argument(
         "--include-protocol-schemas",
         action="store_true",
         help="keep MCP/A2A/OTLP schemas, whose deviation is correct and is most of the noise",
@@ -167,7 +205,11 @@ def main() -> int:
         "--min-dominance",
         type=float,
         default=0.8,
-        help="how one-sided a spec's casing must be before a deviation counts (default 0.8)",
+        help=(
+            "how one-sided a spec's casing must be before a deviation counts (default 0.8). "
+            "Raising this does not separate signal from noise - the one proven defect, Milvus, sits "
+            "at 84% while D-ID's noise sits at 88%. --max-deviation-share is the lever that works"
+        ),
     )
     args = parser.parse_args()
 
@@ -180,6 +222,7 @@ def main() -> int:
             response_only=not args.all,
             min_dominance=args.min_dominance,
             include_protocol_schemas=args.include_protocol_schemas,
+            max_deviation_share=args.max_deviation_share,
         )
         if not offenders:
             continue
