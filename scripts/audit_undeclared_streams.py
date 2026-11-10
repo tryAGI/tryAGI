@@ -1,7 +1,9 @@
-"""Find operations that take a `stream` flag but declare no text/event-stream response.
+"""Find operations that take a `stream` flag but declare no streaming response content type.
 
-`text/event-stream` on a 2XX response is the only thing that makes AutoSDK emit a `*AsStreamAsync`
-method. An operation that accepts `stream: true` and declares only `application/json` therefore has
+A streaming content type on a 2XX response is the only thing that makes AutoSDK emit a
+`*AsStreamAsync` method. Two are recognised: `text/event-stream` (parsed with `SseParser`) and the
+sequential-JSON family - `application/x-ndjson`, `application/jsonl`, `application/json-seq` -
+(parsed with `StreamReader.ReadLineAsync`). Either one is enough. An operation that accepts `stream: true` and declares only `application/json` therefore has
 no generated stream at all: the SDK either hand-writes the transport, or - worse - offers the caller
 a `stream` parameter on a method that cannot stream and fails to parse the result.
 
@@ -9,16 +11,17 @@ That is not hypothetical. tryAGI/Anthropic hand-wrote ~360 lines of SSE transpor
 reason, and tryAGI/Groq exposed the flag with nothing behind it. Both were fixed by declaring the
 content type in `generate.sh`.
 
-**A hit is a candidate, not a defect**, and there are two distinct innocent cases:
+**A hit is a candidate, not a defect**, because of one big innocent case: there may be no event
+schema to point at. A patch needs a schema for the stream frame. Most hits have none, so declaring
+the content type would mean hand-writing an event schema - a much larger job than a one-line `yq`.
+Run with --paired to see only the hits where a sibling stream schema already exists, which is the
+mechanically patchable set.
 
-- **The stream is not SSE.** Ollama's spec correctly declares `application/x-ndjson`, because Ollama
-  streams newline-delimited JSON. Declaring `text/event-stream` there would hand NDJSON to
-  `SseParser` and break it. That is an AutoSDK gap (no NDJSON streaming), not a spec defect, and
-  this script deliberately does not flag it - it only reports the absence of SSE.
-- **There is no event schema to point at.** A patch needs a schema for the stream frame. Most hits
-  have none, so declaring the content type would mean hand-writing an event schema - a much larger
-  job than a one-line `yq`. Run with --paired to see only the hits where a sibling stream schema
-  already exists, which is the mechanically patchable set.
+**Pick the content type the service actually sends.** SSE and NDJSON are not interchangeable:
+declaring `text/event-stream` for a service that sends newline-delimited JSON hands NDJSON to
+`SseParser` and yields nothing. Ollama is the worked example of getting this right - it streams
+NDJSON, declares `application/x-ndjson`, and AutoSDK generates a `ReadLineAsync` loop for it. That
+is why this script treats either content type as satisfied rather than looking only for SSE.
 
 Usage:
     scripts/audit_undeclared_streams.py [--paired]
@@ -65,11 +68,16 @@ def has_stream_flag(doc, op):
             return True
     return False
 
-def declares_sse(op):
+# Every response content type AutoSDK can turn into a generated stream.
+STREAMING_CONTENT_TYPES = ("event-stream", "x-ndjson", "jsonl", "json-seq")
+
+
+def declares_stream(op):
+    """True when a 2XX response declares a content type AutoSDK streams."""
     for resp in (op.get("responses") or {}).values():
         if isinstance(resp, dict):
             for ct in (resp.get("content") or {}):
-                if "event-stream" in ct:
+                if any(marker in ct for marker in STREAMING_CONTENT_TYPES):
                     return True
     return False
 
@@ -89,7 +97,7 @@ for p in specs:
         for method, op in item.items():
             if method not in ("get", "post", "put", "patch", "delete") or not isinstance(op, dict):
                 continue
-            if has_stream_flag(doc, op) and not declares_sse(op):
+            if has_stream_flag(doc, op) and not declares_stream(op):
                 hits.append(f"{method.upper()} {path}")
     if hits:
         findings[p.relative_to(WS).parts[0]] = hits
@@ -137,13 +145,7 @@ def stream_siblings(name, schemas):
 
 
 def report_paired():
-    """Only the hits a one-line content-type patch can fix today.
-
-    One standing false positive: Ollama's `/api/chat` and `/api/generate` pair cleanly with
-    `ChatStreamEvent` / `GenerateStreamEvent`, but Ollama streams NDJSON and its spec already says
-    so (`application/x-ndjson`). Declaring `text/event-stream` there would be wrong. It stays listed
-    rather than special-cased, because the pairing is real and only the transport is not.
-    """
+    """Only the hits a one-line content-type patch can fix today."""
     total = 0
     for p in specs:
         sdk = p.relative_to(WS).parts[0]
@@ -161,7 +163,7 @@ def report_paired():
             for method, op in item.items():
                 if method not in ("get", "post") or not isinstance(op, dict):
                     continue
-                if not (has_stream_flag(doc, op) and not declares_sse(op)):
+                if not (has_stream_flag(doc, op) and not declares_stream(op)):
                     continue
                 rname = response_schema_name(doc, op)
                 if not rname:
