@@ -61,17 +61,32 @@ AUTH_GATEWAY = re.compile(
 )
 
 
-def test_method_bodies(text: str):
+def test_method_bodies(code: str):
     """Each [TestMethod]'s source, by brace matching from the attribute.
+
+    Takes already-stripped code: comments and string literals must be gone before this runs, and
+    stripping is the expensive part, so the caller does it once.
 
     Per method, not per file. A file that gates one test does not gate the others: Pinecone's
     Examples/EmbeddingGenerator.cs declares three, of which one calls GetAuthenticatedClient() and
     two build a generator locally and assert on GetService. Counting the file as gated hid two
     tests that run - and do pass - with no key.
     """
-    code = strip_non_code(text)
     for match in TEST_METHOD.finditer(code):
         start = code.find("{", match.end())
+        arrow = code.find("=>", match.end())
+
+        # An expression-bodied test has no braces at all:
+        #     [TestMethod]
+        #     public Task ReplacementApiContracts() => Contracts.ReplacementApiContract.RunAsync();
+        # Brace matching dropped those silently - Langfuse's only pre-existing test is one - and in a
+        # file with other methods it could have attached the wrong body instead.
+        if arrow >= 0 and (start < 0 or arrow < start):
+            end = code.find(";", arrow)
+            if end >= 0:
+                yield code[match.end():end + 1]
+                continue
+
         if start < 0:
             continue
         depth = 0
@@ -96,7 +111,14 @@ def scan(sdk_tests: pathlib.Path) -> tuple[int, int, list[str]]:
             text = path.read_text(errors="replace")
         except OSError:
             continue
-        bodies = list(test_method_bodies(text))
+        code = strip_non_code(text)
+        bodies = list(test_method_bodies(code))
+        declared = len(TEST_METHOD.findall(code))
+        if len(bodies) != declared:
+            # A parser that silently drops a method makes both counts wrong, and that is exactly
+            # how the expression-bodied case went unnoticed. Say so rather than undercount.
+            print(f"warning: parsed {len(bodies)} of {declared} test methods in {path}",
+                  file=sys.stderr)
         if not bodies:
             continue
         total += len(bodies)
