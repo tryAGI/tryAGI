@@ -144,6 +144,51 @@ def inline_responses_by_operation(document) -> dict[str, list[str]]:
     return result
 
 
+def propose_names(found, only_spec: str | None) -> int:
+    """Print the name every status-code collision would get, taken from the spec's own codes.
+
+    The convention is the only one that needs no invention: the lowest 2XX keeps the bare
+    `<Method>Response` that callers already use, and every other declared code appends its own
+    number. Nothing here is a guess - each name is a code the operation declares.
+
+    What this does NOT settle is which of today's `…Response2`, `…Response3` maps to which code.
+    That order lives in the generator, so the mapping has to come from there; this is the target
+    set, not a rename table.
+    """
+    total = 0
+    for spec_name, names in sorted(found.items()):
+        if only_spec and spec_name != only_spec:
+            continue
+        document = load_spec(spec_name)
+        if not isinstance(document, dict):
+            continue
+        responses = inline_responses_by_operation(document)
+        printed_for_spec = False
+        seen_operations = set()
+        for name in names:
+            base = re.sub(r"\d+$", "", name)
+            if not RESPONSE_SUFFIX.search(base):
+                continue
+            operation = RESPONSE_SUFFIX.sub("", base)
+            codes = responses.get(key(operation))
+            if not codes or len(codes) < 2 or operation in seen_operations:
+                continue
+            seen_operations.add(operation)
+            if not printed_for_spec:
+                print(f"\n## {spec_name}")
+                printed_for_spec = True
+            success = sorted(c for c in codes if c.startswith("2"))
+            bare = success[0] if success else None
+            proposed = [
+                f"{base}" if code == bare else f"{base}{code}"
+                for code in sorted(codes)
+            ]
+            total += len(proposed)
+            print(f"  {operation}: {', '.join(proposed)}")
+    print(f"\nproposed names: {total}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -151,9 +196,15 @@ def main() -> int:
     parser.add_argument("--rev", default="025bb33e2c", help="revision whose baselines to read")
     parser.add_argument("--spec", help="report one spec in detail")
     parser.add_argument("--limit", type=int, default=12)
+    parser.add_argument("--names", action="store_true",
+                        help="print the name each status-code collision would get, per operation")
     args = parser.parse_args()
 
     found = collisions_at(args.rev)
+
+    if args.names:
+        return propose_names(found, args.spec)
+
     verdicts = collections.Counter()
     per_spec = collections.defaultdict(collections.Counter)
     examples: dict[str, list[str]] = collections.defaultdict(list)
