@@ -29,14 +29,15 @@ Usage:
 
 import json, pathlib, sys, re
 
+# Isolated mode (`python3 -I`, how these audits are run) drops the script's own directory from
+# sys.path, so the shared module needs its path put back explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from spec_tools import load_document as _load_document  # noqa: E402
+
 WS = pathlib.Path("/Users/havendv/GitHub/tryAGI")
 
 def load(p):
-    t = p.read_text(errors="replace")
-    if p.suffix == ".json":
-        return json.loads(t)
-    import yaml
-    return yaml.safe_load(t)
+    return _load_document(p)
 
 def resolve(doc, node, depth=0):
     while isinstance(node, dict) and "$ref" in node and depth < 20:

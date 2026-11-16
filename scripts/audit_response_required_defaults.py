@@ -21,38 +21,21 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import re
 import sys
 
-try:
-    import yaml
-except ImportError:  # pragma: no cover - yaml is only needed for .yaml specs
-    yaml = None
+# Isolated mode (`python3 -I`, how these audits are run) drops the script's own directory from
+# sys.path, so the shared module needs its path put back explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from spec_tools import load_document as _load_document  # noqa: E402
 
 REF = re.compile(r"^#/components/schemas/(.+)$")
 WORKSPACE = pathlib.Path(__file__).resolve().parent.parent
 
 
 def load_spec(path: pathlib.Path) -> dict | None:
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-
-    if text.lstrip().startswith("{"):
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return None
-
-    if yaml is None:
-        return None
-    try:
-        return yaml.safe_load(text)
-    except yaml.YAMLError:
-        return None
+    return _load_document(path)
 
 
 def collect_refs(node: object, out: set[str]) -> None:

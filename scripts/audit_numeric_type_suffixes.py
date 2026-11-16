@@ -42,6 +42,13 @@ import pathlib
 import re
 import sys
 
+# Isolated mode (`python3 -I`, how these audits are run) drops the script's own directory from
+# sys.path, so the shared module needs its path put back explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from spec_tools import declared_components as _declared_components  # noqa: E402
+from spec_tools import find_spec as _find_spec  # noqa: E402
+from spec_tools import load_document as _load_document  # noqa: E402
+
 WORKSPACE = pathlib.Path(__file__).resolve().parent.parent
 
 MODEL_FILE = re.compile(r"^[^.]+\.Models\.([A-Za-z0-9_]+)\.g\.cs$")
@@ -54,37 +61,9 @@ STRIP_NUMBERING = re.compile(r"(?<=[A-Za-z])\d{1,3}(?![0-9])")
 
 
 def declared_components(generated: pathlib.Path) -> set[str]:
-    """The component names the SDK's own committed spec declares.
-
-    These are never AutoSDK collisions. Some upstream generators deduplicate by appending an index,
-    so a document arrives already holding `JsonError` through `JsonError4` (D-ID), `AccountVO` and
-    `AccountVO2` (Dedoose), `CanvasPosition` and `CanvasPosition1` (Coze). AutoSDK reproduces those
-    names faithfully and has nothing to merge - they are separate components, not one schema seen
-    twice. The bucket below for "the spec's own name" only caught the ones whose base does not also
-    exist, so a declared `AccountVO2` sitting beside a declared `AccountVO` was counted as a
-    collision. Across AutoSDK's snapshot specs that error was worth 251 names.
-    """
-    library = generated.parent
-    for candidate in sorted(library.glob("openapi.*")):
-        if candidate.suffix not in (".yaml", ".yml", ".json"):
-            continue
-        try:
-            text = candidate.read_text(errors="replace")
-        except OSError:
-            return set()
-        try:
-            document = json.loads(text)
-        except json.JSONDecodeError:
-            try:
-                import yaml
-                document = yaml.safe_load(text)
-            except Exception:
-                return set()
-        if not isinstance(document, dict):
-            return set()
-        schemas = (document.get("components") or {}).get("schemas") or {}
-        return set(schemas) if isinstance(schemas, dict) else set()
-    return set()
+    """The component names the SDK's own committed spec declares, beside its Generated/ directory."""
+    path = _find_spec("openapi", generated.parent)
+    return _declared_components(_load_document(path)) if path else set()
 
 
 def shape(path: pathlib.Path) -> str | None:

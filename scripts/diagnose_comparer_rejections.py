@@ -59,6 +59,13 @@ import json
 import pathlib
 import sys
 
+# Isolated mode (`python3 -I`, how these audits are run) drops the script's own directory from
+# sys.path, so the shared module needs its path put back explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from spec_tools import declared_components as _declared_components  # noqa: E402
+from spec_tools import find_spec as _find_spec  # noqa: E402
+from spec_tools import load_document as _load_document  # noqa: E402
+
 MAX_DEPTH = 12
 SPECS = pathlib.Path.home() / "GitHub/tryAGI/AutoSDK/specs"
 
@@ -182,15 +189,12 @@ def compare(left, right, depth: int, pointer: str) -> None:
 
 
 def load(name: str):
-    for candidate in (SPECS / f"{name}.yaml", SPECS / f"{name}.json", SPECS / name):
-        if candidate.is_file():
-            text = candidate.read_text()
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                import yaml
-                return yaml.safe_load(text)
-    raise SystemExit(f"spec not found: {name}")
+    """The named spec, or exit - a pointer into a document that is not there is a usage error."""
+    path = _find_spec(name, SPECS)
+    document = _load_document(path) if path else None
+    if document is None:
+        raise SystemExit(f"spec not found or unparseable: {name}")
+    return document
 
 
 def main() -> int:

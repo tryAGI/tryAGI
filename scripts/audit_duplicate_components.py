@@ -68,6 +68,14 @@ import pathlib
 import re
 import sys
 
+# Isolated mode (`python3 -I`, how these audits are run) drops the script's own directory from
+# sys.path, so the shared module needs its path put back explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from spec_tools import declared_components as _declared_components  # noqa: E402
+from spec_tools import find_spec as _find_spec  # noqa: E402
+from spec_tools import load_document as _load_document  # noqa: E402
+from spec_tools import stable as _stable  # noqa: E402
+
 WORKSPACE = pathlib.Path(__file__).resolve().parent.parent
 TRAILING_NUMBER = re.compile(r"\d+$")
 # A trailing number is not always an index. Descript declares Error400, Error401, Error402,
@@ -85,35 +93,8 @@ def comparer():
     return module
 
 
-def stable(value) -> str:
-    """A deterministic string for any parsed YAML/JSON value.
-
-    `json.dumps(..., sort_keys=True)` is not usable here: YAML turns unquoted dates into datetimes
-    and bare `on`/`off`/`yes` keys into booleans, so a document can carry a map whose keys are of
-    mixed types and refuse to sort. This walks the value and sorts keys by their text instead.
-    """
-    if isinstance(value, dict):
-        return "{" + ",".join(
-            f"{str(k)}:{stable(v)}" for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
-        ) + "}"
-    if isinstance(value, list):
-        return "[" + ",".join(stable(v) for v in value) + "]"
-    return repr(value)
 
 
-def load(path: pathlib.Path):
-    try:
-        text = path.read_text(errors="replace")
-    except OSError:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        try:
-            import yaml
-            return yaml.safe_load(text)
-        except Exception:
-            return None
 
 
 def duplicate_groups(schemas: dict, compare, min_size: int) -> list[list[str]]:
@@ -126,16 +107,16 @@ def duplicate_groups(schemas: dict, compare, min_size: int) -> list[list[str]]:
     for name, schema in schemas.items():
         if not isinstance(schema, dict):
             continue
-        if len(stable(schema)) < min_size:
+        if len(_stable(schema)) < min_size:
             continue
         properties = schema.get("properties")
         signature = (
-            stable(schema.get("type")),
+            _stable(schema.get("type")),
             tuple(sorted(map(str, properties))) if isinstance(properties, dict) else (),
             len(schema.get("oneOf") or []),
             len(schema.get("anyOf") or []),
             len(schema.get("allOf") or []),
-            stable(sorted(map(str, schema.get("required") or []))),
+            _stable(sorted(map(str, schema.get("required") or []))),
         )
         buckets[signature].append(name)
 
@@ -193,7 +174,7 @@ def main() -> int:
             continue
         if args.sdk and sdk != args.sdk:
             continue
-        document = load(spec_path)
+        document = _load_document(spec_path)
         if not isinstance(document, dict):
             continue
         schemas = (document.get("components") or {}).get("schemas") or {}

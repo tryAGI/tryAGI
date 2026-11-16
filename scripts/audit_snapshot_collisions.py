@@ -34,6 +34,13 @@ import re
 import subprocess
 import sys
 
+# Isolated mode (`python3 -I`, how these audits are run) drops the script's own directory from
+# sys.path, so the shared module needs its path put back explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from spec_tools import declared_components as _declared_components  # noqa: E402
+from spec_tools import find_spec as _find_spec  # noqa: E402
+from spec_tools import load_document as _load_document  # noqa: E402
+
 SNAPSHOTS = "src/tests/AutoSDK.SnapshotTests/Snapshots"
 # Set from --repo in main(); the spec files live beside the snapshot tree being measured.
 REPO = pathlib.Path.home() / "GitHub/tryAGI/AutoSDK"
@@ -48,31 +55,9 @@ SKIP_DIRS = re.compile(r"^(CLI|Empty|Parallel|DependencyInjection|HttpResilience
 
 
 def declared_components(spec_stem: str) -> set[str]:
-    """The component names the spec itself declares, which are never AutoSDK collisions.
-
-    Some upstream generators deduplicate by appending an index, so a document arrives already
-    holding `JsonError` through `JsonError4` (did), `AccountVO` and `AccountVO2` (dedoose),
-    `CanvasPosition` and `CanvasPosition1` (coze). AutoSDK reproduces those names faithfully and has
-    nothing to merge: they are two components, not one schema seen twice. Counting them inflated both
-    ends of this measurement by 251 names, 214 of them openrouter's.
-    """
-    for candidate in sorted((REPO / "specs").glob(f"{spec_stem}.*")):
-        if candidate.suffix not in (".yaml", ".yml", ".json"):
-            continue
-        text = candidate.read_text(errors="replace")
-        try:
-            document = json.loads(text)
-        except json.JSONDecodeError:
-            try:
-                import yaml
-                document = yaml.safe_load(text)
-            except Exception:
-                return set()
-        if not isinstance(document, dict):
-            return set()
-        schemas = (document.get("components") or {}).get("schemas") or {}
-        return set(schemas) if isinstance(schemas, dict) else set()
-    return set()
+    """The component names the spec itself declares, which are never AutoSDK collisions."""
+    path = _find_spec(spec_stem, REPO / "specs")
+    return _declared_components(_load_document(path)) if path else set()
 
 
 def collisions_from_names(by_spec: dict[str, set[str]]) -> dict[str, list[str]]:

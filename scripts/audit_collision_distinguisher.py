@@ -60,6 +60,13 @@ import re
 import subprocess
 import sys
 
+# Isolated mode (`python3 -I`, how these audits are run) drops the script's own directory from
+# sys.path, so the shared module needs its path put back explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from spec_tools import declared_components as _declared_components  # noqa: E402
+from spec_tools import find_spec as _find_spec  # noqa: E402
+from spec_tools import load_document as _load_document  # noqa: E402
+
 REPO = pathlib.Path.home() / "GitHub/tryAGI/AutoSDK"
 SNAPSHOTS = "src/tests/AutoSDK.SnapshotTests/Snapshots"
 MODEL_FILE = re.compile(r"^_#.*\.Models\.([A-Za-z0-9_]+)\.g\.verified\.cs$")
@@ -113,19 +120,9 @@ def collisions_at(rev: str) -> dict[str, list[str]]:
 
 
 def load_spec(stem: str):
-    for candidate in sorted((REPO / "specs").glob(f"{stem}.*")):
-        if candidate.suffix not in (".yaml", ".yml", ".json"):
-            continue
-        text = candidate.read_text(errors="replace")
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            try:
-                import yaml
-                return yaml.safe_load(text)
-            except Exception:
-                return None
-    return None
+    """The spec for a snapshot directory, by its stem."""
+    path = _find_spec(stem, REPO / "specs")
+    return _load_document(path) if path else None
 
 
 def inline_responses_by_operation(document) -> dict[str, list[str]]:

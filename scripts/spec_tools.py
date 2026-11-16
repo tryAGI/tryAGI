@@ -1,0 +1,93 @@
+"""Shared helpers for the OpenAPI audit scripts in this directory.
+
+Every audit here grew its own copy of "read a spec" and "serialize a parsed value", and the copies
+drifted. That drift is not cosmetic: the collision counts in three separate audits were wrong because
+each decided independently - and differently - what counts as a name the document declares itself.
+Three corrections later, the loaders live here.
+
+Importing this under `python3 -I` needs one line of ceremony, because isolated mode drops the
+script's own directory from `sys.path`:
+
+    import pathlib, sys
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    from spec_tools import load_document
+
+The audits are run as `python3 -I scripts/<name>.py`, so that is the supported way in.
+"""
+
+from __future__ import annotations
+
+import json
+import pathlib
+
+SPEC_SUFFIXES = (".yaml", ".yml", ".json")
+
+
+def load_document(path: pathlib.Path):
+    """Parse an OpenAPI document, JSON or YAML, or return None.
+
+    JSON first because most of these documents are JSON and `yaml.safe_load` on a large JSON file is
+    an order of magnitude slower. Returns None rather than raising: an audit runs over a couple of
+    hundred documents and one unparseable file should be reported, not fatal.
+    """
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    try:
+        import yaml
+    except ImportError:
+        return None
+    try:
+        return yaml.safe_load(text)
+    except Exception:
+        return None
+
+
+def find_spec(stem: str, *roots: pathlib.Path) -> pathlib.Path | None:
+    """The first file named `<stem>.<json|yaml|yml>` in any of the given directories."""
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for candidate in sorted(root.glob(f"{stem}.*")):
+            if candidate.suffix in SPEC_SUFFIXES:
+                return candidate
+    return None
+
+
+def declared_components(document) -> set[str]:
+    """The names under `components.schemas`, which are never AutoSDK name collisions.
+
+    Several of the tools that produce these documents deduplicate by appending an index, so a spec
+    can arrive already holding `JsonError` through `JsonError4` (D-ID), `AccountVO` and `AccountVO2`
+    (Dedoose), `CanvasPosition` and `CanvasPosition1` (Coze). AutoSDK reproduces those names
+    faithfully and has nothing to merge - they are separate components, not one schema seen twice -
+    so an audit that counts them as collisions overstates its own subject. That error was worth 251
+    names on AutoSDK's fixtures, 214 of them OpenRouter's, and 175 across the SDK repositories.
+    """
+    if not isinstance(document, dict):
+        return set()
+    schemas = (document.get("components") or {}).get("schemas") or {}
+    return set(schemas) if isinstance(schemas, dict) else set()
+
+
+def stable(value) -> str:
+    """A deterministic string for any parsed YAML/JSON value.
+
+    `json.dumps(..., sort_keys=True)` is not usable on these documents. YAML turns unquoted dates
+    into `datetime` objects, which json refuses, and bare `on` / `off` / `yes` keys into booleans, so
+    a map can end up with keys of mixed types that will not sort against each other. This sorts keys
+    by their text and never calls json.
+    """
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            f"{key}:{stable(child)}"
+            for key, child in sorted(((str(k), v) for k, v in value.items()), key=lambda kv: kv[0])
+        ) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(stable(child) for child in value) + "]"
+    return repr(value)
