@@ -26,20 +26,25 @@ that is not a letter or digit, compare case-insensitively - which is approximate
 `x-fern-sdk-method-name`, tag grouping or `MethodAndPath` naming will land in `unresolved` rather
 than be matched wrongly. That is the safe direction for this question.
 
-## What it found, 2026-11-16, on the 1251 collisions surviving 025bb33e2c
+## What it found, 2026-11-16, on the 1000 real collisions surviving 025bb33e2c
 
 | verdict | count | |
 |---|---|---|
-| status-code | 408 (32.6%) | derivable: the operation's codes are known and printed |
-| not-a-status-code | 80 (6.4%) | resolves to an operation with at most one inline response |
-| not-a-response-type | 684 (54.7%) | a nested sub-object, named by the generator from its position |
-| unresolved | 74 (5.9%) | honestly unknown |
+| status-code | 408 (40.8%) | derivable: the operation's codes are known and printed |
+| not-a-status-code | 80 (8.0%) | resolves to an operation with at most one inline response |
+| not-a-response-type | 433 (43.3%) | a nested sub-object, named by the generator from its position |
+| unresolved | 74 (7.4%) | honestly unknown |
 
-So the old heuristic's "49% response-shaped" was not close. The real figure is **32.6%**, and of the
-571 names the heuristic called responses, **163 - 28.5% - are not distinguished by a status code**.
-The conclusion it was used to support survives and is in fact stronger: a status code names a third
-of them, and the clear majority are not response bodies at all, so no scheme keyed on status codes
-can cover the problem.
+So the old heuristic's "49% response-shaped" was not close. The real figure is **40.8%**, and of the
+567 names the heuristic called responses, **159 - 28.0% - are not distinguished by a status code**.
+The conclusion it was used to support survives: a status code names two fifths of them and nothing
+names the rest, so no scheme keyed on status codes can cover the problem.
+
+The 1000 is itself a correction. Counting every `Name<N>` whose base exists gave 1251, but 251 of
+those are names the documents declare themselves - did.json ships `JsonError` through `JsonError4`,
+dedoose ships `AccountVO` and `AccountVO2`, openrouter alone accounts for 214 - and AutoSDK has
+nothing to merge there. Excluding them also moves the status-code share up, since nearly all of them
+were landing in `not-a-response-type`.
 
 Usage:
     scripts/audit_collision_distinguisher.py [--rev REV] [--spec NAME] [--limit N]
@@ -88,10 +93,18 @@ def collisions_at(rev: str) -> dict[str, list[str]]:
 
     found: dict[str, list[str]] = {}
     for spec, all_names in names.items():
+        # A name the document itself declares is not a collision: some upstream generators
+        # deduplicate by appending an index, so did.json arrives holding JsonError through
+        # JsonError4 and dedoose holds AccountVO and AccountVO2. AutoSDK reproduces those names
+        # faithfully and has nothing to merge. Counting them inflated this by 251 names.
+        document = load_spec(spec)
+        declared = set(((document or {}).get("components") or {}).get("schemas") or {}) \
+            if isinstance(document, dict) else set()
         hits = [
             name for name in sorted(all_names)
             if re.search(r"\d$", name)
             and not NOT_A_COLLISION.search(name)
+            and name not in declared
             and re.sub(r"\d+$", "", name) in all_names
         ]
         if hits:

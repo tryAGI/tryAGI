@@ -28,12 +28,15 @@ from __future__ import annotations
 import argparse
 import collections
 import hashlib
+import json
 import pathlib
 import re
 import subprocess
 import sys
 
 SNAPSHOTS = "src/tests/AutoSDK.SnapshotTests/Snapshots"
+# Set from --repo in main(); the spec files live beside the snapshot tree being measured.
+REPO = pathlib.Path.home() / "GitHub/tryAGI/AutoSDK"
 # Baselines are named `_#G.Models.<Type>.g.verified.cs`; the `.Json.g` partial is the same type.
 MODEL_FILE = re.compile(r"^_#.*\.Models\.([A-Za-z0-9_]+)\.g\.verified\.cs$")
 # Not collisions: union-variant naming is a separate mechanism, and a name the spec itself ends with
@@ -44,13 +47,44 @@ STRIP_NUMBERING = re.compile(r"(?<=[A-Za-z])\d{1,3}(?![0-9])")
 SKIP_DIRS = re.compile(r"^(CLI|Empty|Parallel|DependencyInjection|HttpResilience|CloudSigning)")
 
 
+def declared_components(spec_stem: str) -> set[str]:
+    """The component names the spec itself declares, which are never AutoSDK collisions.
+
+    Some upstream generators deduplicate by appending an index, so a document arrives already
+    holding `JsonError` through `JsonError4` (did), `AccountVO` and `AccountVO2` (dedoose),
+    `CanvasPosition` and `CanvasPosition1` (coze). AutoSDK reproduces those names faithfully and has
+    nothing to merge: they are two components, not one schema seen twice. Counting them inflated both
+    ends of this measurement by 251 names, 214 of them openrouter's.
+    """
+    for candidate in sorted((REPO / "specs").glob(f"{spec_stem}.*")):
+        if candidate.suffix not in (".yaml", ".yml", ".json"):
+            continue
+        text = candidate.read_text(errors="replace")
+        try:
+            document = json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                import yaml
+                document = yaml.safe_load(text)
+            except Exception:
+                return set()
+        if not isinstance(document, dict):
+            return set()
+        schemas = (document.get("components") or {}).get("schemas") or {}
+        return set(schemas) if isinstance(schemas, dict) else set()
+    return set()
+
+
 def collisions_from_names(by_spec: dict[str, set[str]]) -> dict[str, list[str]]:
     """For each spec, the numbered names that collide with an existing un-suffixed name."""
     found: dict[str, list[str]] = {}
     for spec, names in by_spec.items():
+        declared = declared_components(spec)
         hits = []
         for name in sorted(names):
             if not re.search(r"\d$", name) or NOT_A_COLLISION.search(name):
+                continue
+            if name in declared:
                 continue
             if re.sub(r"\d+$", "", name) in names:
                 hits.append(name)
@@ -150,17 +184,24 @@ def main() -> int:
     )
     parser.add_argument("--repo", default=str(pathlib.Path.home() / "GitHub/tryAGI/AutoSDK"))
     parser.add_argument("--rev", default="HEAD", help="the pre-dedup revision (default HEAD)")
+    parser.add_argument("--after-rev",
+                        help="read the post side from a revision too, instead of the working tree. "
+                             "Use it whenever the tree may hold an experiment: a dirty Snapshots "
+                             "directory silently turns this into a measurement of that experiment.")
     parser.add_argument("--limit", type=int, default=12)
     args = parser.parse_args()
 
-    repo = pathlib.Path(args.repo)
+    global REPO
+    REPO = pathlib.Path(args.repo)
+    repo = REPO
     root = repo / SNAPSHOTS
     if not root.is_dir():
         print(f"not a snapshot tree: {root}", file=sys.stderr)
         return 1
 
     before = collect_from_rev(repo, args.rev)
-    after = collect_from_disk(root)
+    after = collect_from_rev(repo, args.after_rev) if args.after_rev else collect_from_disk(root)
+    after_label = args.after_rev or "on disk"
 
     before_hits = collisions_from_names(before)
     after_hits = collisions_from_names(after)
@@ -171,8 +212,8 @@ def main() -> int:
     after_types = sum(len(v) for v in after.values())
 
     print(f"specs measured: {len(after)}")
-    print(f"generated model types: {before_types} at {args.rev} -> {after_types} on disk")
-    print(f"numbered collisions:   {before_total} at {args.rev} -> {after_total} on disk", end="")
+    print(f"generated model types: {before_types} at {args.rev} -> {after_types} at {after_label}")
+    print(f"numbered collisions:   {before_total} at {args.rev} -> {after_total} at {after_label}", end="")
     if before_total:
         print(f"  ({(before_total - after_total) / before_total:.1%} gone)")
     else:
@@ -180,6 +221,11 @@ def main() -> int:
 
     if not after_total:
         print("\nno surviving collisions to name.")
+        return 0
+
+    if args.after_rev:
+        print("\nthe survivor breakdown reads files from the working tree, so it is skipped when")
+        print("--after-rev names a revision; run it without --after-rev on a clean tree.")
         return 0
 
     missed, by_status, by_other, examples = classify_survivors(root, after_hits)
