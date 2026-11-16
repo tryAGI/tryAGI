@@ -33,6 +33,17 @@ Spot-checked whether an unreferenced component really becomes a public type: fiv
 something in that SDK's generation drops it. So 2444 is an **upper bound** on dead types, not a
 count of them.
 
+## If AutoSDK gains a "skip unreachable components" flag, it must stay opt-in
+
+Measured on D-ID, which is the worst case, so it sets the bound: of its 354 orphans, **274 are
+emitted** as model types. Of those, **163 have a byte-identical twin** under another name, so
+dropping them costs only the readable name - and **111 have a unique shape nothing else in the SDK
+expresses** (`Agent`, `AgentCreateDto`, `AgentResponseDto`, `AgentStatus`, `AgentTemplate`). Three
+are used by the SDK's own tests: `Tests.SharedJsonMetadata.cs` deserializes `TextScript`.
+
+So such a flag cannot be on by default, and "it only removes unreachable types" is not a safe
+summary of what it does. Reaching for it on one SDK needs the twin analysis above first, per SDK.
+
 ## What an orphan is not
 
 It is not necessarily a defect in the SDK. A spec may declare a component for documentation, or as
