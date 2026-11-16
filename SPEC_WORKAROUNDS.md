@@ -40,11 +40,13 @@ but **not yet, and not without measuring** — two concrete reasons:
 
 - `generate.sh` runs the **published** `autosdk` tool from NuGet. Until the generator-level dedup
   ships in a release, dropping the script would simply bring every duplicate back.
-- The two are not equivalent in reach. The script hashes the serialized JSON at unlimited depth and
-  only touches schemas of **2 KB or more**; the generator's comparer is deliberately conservative and
-  stops at depth 12, reporting "different" rather than guessing. Vercel's spec is 6.6 MB and nests
-  deep, so exactly the large schemas the script targets are the ones the comparer may decline to
-  collapse. The generator wins on small repeated schemas, which the script's threshold ignores.
+- The two are not equivalent in reach, though not for the reason first given here. The comparer's
+  depth limit was blamed, and that was wrong: measured across every spec in AutoSDK's `specs/`,
+  14865 component schemas, the deepest nesting is 10 and the limit of 12 has never fired. The real
+  difference is **scope**. The script merges by exact content regardless of name, hoisting every
+  repeat into `components.schemas`; the generator's dedup is name-scoped, running inside a collision
+  group, so two identical schemas that want different names are never merged. The script also only
+  touches schemas of 2 KB or more, where the generator has no threshold at all.
 
 So the check is: once the dedup is released, regenerate with the script removed and compare generated
 type count and the build. The other three Vercel fixes are unrelated to duplication — they are about
