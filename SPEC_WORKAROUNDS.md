@@ -32,6 +32,24 @@ Two other things the switch needs, both solved and parked in the scratchpad rath
   as separate path items, which is how a spec declares two operations on one path and method. Those
   need `x-autosdk-path` or the fragment is sent to the service as part of the URL.
 
+## Removal candidate: Vercel's `dedupe_inline_schemas.py`
+
+AutoSDK now deduplicates structurally identical inline schemas in the generator itself, which is the
+same job Vercel's script does by rewriting the spec. That makes the script a candidate for removal,
+but **not yet, and not without measuring** — two concrete reasons:
+
+- `generate.sh` runs the **published** `autosdk` tool from NuGet. Until the generator-level dedup
+  ships in a release, dropping the script would simply bring every duplicate back.
+- The two are not equivalent in reach. The script hashes the serialized JSON at unlimited depth and
+  only touches schemas of **2 KB or more**; the generator's comparer is deliberately conservative and
+  stops at depth 12, reporting "different" rather than guessing. Vercel's spec is 6.6 MB and nests
+  deep, so exactly the large schemas the script targets are the ones the comparer may decline to
+  collapse. The generator wins on small repeated schemas, which the script's threshold ignores.
+
+So the check is: once the dedup is released, regenerate with the script removed and compare generated
+type count and the build. The other three Vercel fixes are unrelated to duplication — they are about
+union arity and ECMA-335 metadata limits — and stay regardless.
+
 ## Spec-Level Fixes (Pre-Generation)
 
 Most SDKs have clean `generate.sh` scripts. The following require workarounds due to upstream spec issues or AutoSDK limitations.
@@ -71,6 +89,7 @@ Most SDKs have clean `generate.sh` scripts. The following require workarounds du
 | LabelStudio | `yq`: apiKey→bearer conversion + `PrepareRequest` Token auth hook; drop required `username` from `UserSimple` (the API omits it, so all 29 schemas embedding a user failed to deserialize); mark `LseProjectCreate`'s read-only integer counters nullable (a fresh project returns null for each, and the sibling `LseProject` already says nullable) | Auth fix / response shape |
 | VoyageAI | `yq`: remove broken `Authorization: Bearer` apiKey scheme | Auth fix |
 | Vapi | `jq`: 7 fixes — LMNTVoice oneOf flatten (#206), operator/punctuation enums, discriminator mappings, 11labs rename, enum dedup, duplicate param rename | Enum/schema fix |
+| Vercel | `python3`: four fixes — drop `required` from the update-invoice inline `oneOf` variants (CS9035 on the generated convenience overloads); collapse `UserEvent.payload` to an untyped object (hundreds of inline variants produced a 300+ generic-argument union); collapse every `contentHint` to an untyped object (a repeated 17-way inline `oneOf` whose generated names exceed ECMA-335 metadata limits); and `dedupe_inline_schemas.py`, which hoists inline schemas repeated across operations into `components.schemas` and replaces each occurrence with a `$ref` | Required fix / schema simplification / inline dedup |
 | SmallestAI | `yq`: declare the documented `application/json` `{"url": ...}` STT request variant; `--required-path /waves/v1/stt/` guards the Fern spec selection. Handcrafted `asyncapi.yaml` for both WebSocket channels (no upstream AsyncAPI) | Schema injection / handcrafted spec |
 
 ## Auditing for the Next `caller`
