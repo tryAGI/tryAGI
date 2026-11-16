@@ -183,6 +183,27 @@ Use `Anthropic/src/libs/Anthropic/Extensions/AnthropicClient.ChatClient.cs` as t
 - AutoSDK is the upstream generator; changes there affect all downstream SDKs
 - CSharpToJsonSchema is a shared dependency for tool-calling SDKs
 
+### Don't let a suite of nothing but skips pass for a green run
+
+Most integration tests fetch an API key and raise `AssertInconclusiveException` without one, which
+MSTest reports as *skipped*. A suite where **every** test does that prints `Skipped!` and exits 0, so
+a spec fix or a regenerated model there is backed by nothing but a successful build. Measured
+2026-11-17: **137 of 235 SDKs have no key-free test at all.**
+
+```bash
+python3 -I scripts/audit_keyless_tests.py           # where the gaps are
+python3 -I scripts/audit_keyless_tests.py --check   # exit 1 if an SDK LOSES coverage it had
+python3 -I scripts/audit_keyless_tests.py --write-baseline   # after adding tests, lock the gain in
+```
+
+`--check` is a ratchet against `scripts/keyless-tests-baseline.json`, not a target: it does not
+demand the 137 grow tests, it catches coverage disappearing, which nothing else would notice.
+
+**It cannot run in this repository's CI.** The workspace repo tracks no SDK — only docs and scripts
+— so a job here has no `*/src/tests` to scan. Run it where the repositories are checked out side by
+side. The per-SDK equivalent belongs in the shared workflow (`HavenDV/workflows`): assert the test
+step reported `Passed!` rather than `Skipped!`.
+
 ## Reference Files
 
 Detailed reference data is split into dedicated files to keep this file concise:
