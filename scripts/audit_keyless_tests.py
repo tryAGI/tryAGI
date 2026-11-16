@@ -107,6 +107,63 @@ def scan(sdk_tests: pathlib.Path) -> tuple[int, int, list[str]]:
     return total, keyless, files
 
 
+BASELINE = WORKSPACE / "scripts" / "keyless-tests-baseline.json"
+
+
+def counts() -> dict[str, int]:
+    found: dict[str, int] = {}
+    for sdk in sorted(p for p in WORKSPACE.iterdir() if p.is_dir() and not p.name.startswith(".")):
+        tests = sdk / "src" / "tests"
+        if tests.is_dir():
+            total, keyless, _ = scan(tests)
+            if total:
+                found[sdk.name] = keyless
+    return found
+
+
+def ratchet(write: bool) -> int:
+    """A floor, not a target: 137 SDKs have no key-free test and demanding one today would only
+    make the check red. What this catches is losing coverage that exists - a regenerated suite, a
+    deleted file, a test that grew an environment variable - which is invisible otherwise, because
+    a suite of nothing but skips reports success.
+
+    Note this can only run where the SDK repositories are checked out beside this one. The
+    workspace repository tracks no SDK, so its own CI cannot see them.
+    """
+    current = counts()
+    if write:
+        BASELINE.write_text(json.dumps(dict(sorted(current.items())), indent=2) + "\n")
+        covered = sum(1 for v in current.values() if v)
+        print(f"baseline written: {len(current)} SDKs, {covered} with key-free coverage")
+        return 0
+
+    if not BASELINE.is_file():
+        print(f"no baseline at {BASELINE}; run --write-baseline first", file=sys.stderr)
+        return 1
+
+    previous = json.loads(BASELINE.read_text())
+    regressions = [
+        (sdk, previous[sdk], current.get(sdk, 0))
+        for sdk in sorted(previous)
+        if sdk in current and current[sdk] < previous[sdk]
+    ]
+    missing = sorted(sdk for sdk in previous if sdk not in current)
+    gains = [(sdk, previous.get(sdk, 0), count) for sdk, count in sorted(current.items())
+             if count > previous.get(sdk, 0)]
+
+    for sdk, was, now in regressions:
+        print(f"REGRESSION {sdk}: {was} key-free test(s) -> {now}")
+    for sdk in missing:
+        print(f"MISSING {sdk}: had {previous[sdk]} key-free test(s), no test project now")
+    for sdk, was, now in gains:
+        print(f"gained    {sdk}: {was} -> {now}; re-run --write-baseline to lock it in")
+
+    if regressions or missing:
+        return 1
+    print(f"no regressions against {len(previous)} baselined SDKs")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
