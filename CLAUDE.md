@@ -183,6 +183,30 @@ Use `Anthropic/src/libs/Anthropic/Extensions/AnthropicClient.ChatClient.cs` as t
 - AutoSDK is the upstream generator; changes there affect all downstream SDKs
 - CSharpToJsonSchema is a shared dependency for tool-calling SDKs
 
+### Never delete a component because an audit called it unreachable
+
+`scripts/audit_unreferenced_components.py` finds components no `$ref` reaches — 2180 of them across
+the workspace — and the number invites deletion. Two checks have to run first, and both have
+overturned the conclusion already:
+
+```bash
+python3 -I scripts/audit_unreferenced_components.py --cost        # renames vs lost shapes
+python3 -I scripts/audit_orphan_type_usage.py --sdk <Name>        # what the SDK's own code uses
+```
+
+- **`--cost`**: of 1946 orphans emitted as types, only **452 (23%) have an identically-shaped twin**
+  under another name, where deleting costs the readable name alone. The other **1494 (77%) are the
+  only expression of their shape**. D-ID is the exception that nearly misled me — 163 twins against
+  111 unique, the one large SDK where renaming dominates.
+- **`audit_orphan_type_usage`**: **21 components in 6 SDKs are used by hand-written code** despite
+  nothing in the document referencing them. Cartesia's ten are its WebSocket vocabulary, which
+  OpenAPI structurally cannot reference; D-ID's two are used by its own tests. It finds type
+  references with `csharp_references`, not a regex — a regex answered 8 for D-ID where the answer is
+  2, counting `response.Status` and a `Role =` initializer as type uses.
+
+An unreachable component is often a real vocabulary the document simply cannot connect to an
+operation. Treat the audit as a question, not a verdict.
+
 ### Don't let a suite of nothing but skips pass for a green run
 
 Most integration tests fetch an API key and raise `AssertInconclusiveException` without one, which
