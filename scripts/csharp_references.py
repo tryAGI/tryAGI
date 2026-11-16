@@ -33,64 +33,55 @@ NORMAL_STRING = re.compile(r'\$?"(?:\\.|[^"\\\n])*"')
 CHAR_LITERAL = re.compile(r"'(?:\\.|[^'\\])'")
 
 
+# One alternation to find the next construct that is not code. Everything between two of these is
+# plain source and can be copied in one slice - which is the whole point: the previous version
+# stepped one character at a time, and the audits that call this walk every test file of 235 SDKs.
+INTERESTING = re.compile(r'//|/\*|\$*"{3,}|@\$?"|\$?"|\'')
+
+
 def strip_non_code(source: str) -> str:
     """Replace comments and string literals with spaces, preserving every other offset.
 
-    One left-to-right pass, not a pass per construct. Separate passes get this wrong: a
-    verbatim string that ends with a doubled quote before its closing quote finishes with three
-    quote characters in a row - indistinguishable from the start of a raw string - so a
-    raw-string pass running first blanks the rest of the file.
+    One left-to-right pass, not a pass per construct. Separate passes get this wrong: a verbatim
+    string that ends with a doubled quote before its closing quote finishes with three quote
+    characters in a row - indistinguishable from the start of a raw string - so a raw-string pass
+    running first blanks the rest of the file.
     """
     out: list[str] = []
     index = 0
     length = len(source)
     while index < length:
-        char = source[index]
-        rest = source[index:]
+        match = INTERESTING.search(source, index)
+        if match is None:
+            out.append(source[index:])
+            break
 
-        if rest.startswith("//"):
+        out.append(source[index:match.start()])
+        index = match.start()
+        token = match.group(0)
+
+        if token == "//":
             end = source.find("\n", index)
             end = length if end < 0 else end
-            out.append(" " * (end - index))
-            index = end
-            continue
-
-        if rest.startswith("/*"):
+        elif token == "/*":
             end = source.find("*/", index + 2)
             end = length if end < 0 else end + 2
-            out.append(" " * (end - index))
-            index = end
-            continue
+        elif token.lstrip("$").startswith('"""'):
+            fence = token.lstrip("$")
+            closing = source.find(fence, index + len(token))
+            end = length if closing < 0 else closing + len(fence)
+        elif token.startswith("@"):
+            verbatim = VERBATIM_STRING.match(source, index)
+            end = verbatim.end() if verbatim else length
+        elif token.endswith('"'):
+            normal = NORMAL_STRING.match(source, index)
+            end = normal.end() if normal else index + len(token)
+        else:
+            literal = CHAR_LITERAL.match(source, index)
+            end = literal.end() if literal else index + 1
 
-        raw = RAW_STRING.match(rest)
-        if raw:
-            fence = raw.group(0).lstrip("$")
-            end = source.find(fence, index + raw.end())
-            end = length if end < 0 else end + len(fence)
-            out.append(" " * (end - index))
-            index = end
-            continue
-
-        verbatim = VERBATIM_STRING.match(rest)
-        if verbatim:
-            out.append(" " * len(verbatim.group(0)))
-            index += len(verbatim.group(0))
-            continue
-
-        normal = NORMAL_STRING.match(rest)
-        if normal:
-            out.append(" " * len(normal.group(0)))
-            index += len(normal.group(0))
-            continue
-
-        literal = CHAR_LITERAL.match(rest)
-        if literal:
-            out.append(" " * len(literal.group(0)))
-            index += len(literal.group(0))
-            continue
-
-        out.append(char)
-        index += 1
+        out.append(" " * (end - index))
+        index = end
     return "".join(out)
 
 
