@@ -35,14 +35,18 @@ count of them.
 
 ## If AutoSDK gains a "skip unreachable components" flag, it must stay opt-in
 
-Measured on D-ID, which is the worst case, so it sets the bound: of its 354 orphans, **274 are
-emitted** as model types. Of those, **163 have a byte-identical twin** under another name, so
-dropping them costs only the readable name - and **111 have a unique shape nothing else in the SDK
-expresses** (`Agent`, `AgentCreateDto`, `AgentResponseDto`, `AgentStatus`, `AgentTemplate`). Three
-are used by the SDK's own tests: `Tests.SharedJsonMetadata.cs` deserializes `TextScript`.
+`--cost` answers it across every SDK, and the answer is no. Of 1946 orphans emitted as model types
+in 70 SDKs, **452 (23%) have a byte-identical twin** under another name - dropping those costs only
+the readable name - while **1494 (77%) have a shape nothing else in the SDK expresses**. Vapi is 329
+unique against 89 twins, RetellAI 67 against none, Gladia 49 against one.
+
+D-ID, which prompted all this, turns out to be the exception: 163 twins against 111 unique, the only
+large case where renaming dominates. I had taken it as the worst case setting the bound; it is the
+worst case for *count* and close to the best for *safety*. Three of its orphans are also used by the
+SDK's own tests - `Tests.SharedJsonMetadata.cs` deserializes `TextScript`.
 
 So such a flag cannot be on by default, and "it only removes unreachable types" is not a safe
-summary of what it does. Reaching for it on one SDK needs the twin analysis above first, per SDK.
+summary of what it does. Reaching for it on one SDK needs `--cost` for that SDK first.
 
 ## What an orphan is not
 
@@ -59,7 +63,9 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -121,6 +127,84 @@ def orphans(document, siblings: list) -> tuple[set[str], set[str]]:
     return set(schemas), set(schemas) - reachable
 
 
+MODEL_FILE = re.compile(r"^[^.]+\.Models\.([A-Za-z0-9_]+)\.g\.cs$")
+
+
+def removal_cost(generated: pathlib.Path, orphan_names: set[str]) -> tuple[int, int, list[str]]:
+    """(emitted, with an identically-shaped twin, the ones whose shape is unique).
+
+    Deleting an orphan that has a twin costs the readable name and nothing else - the shape survives
+    under whatever the paths called it. Deleting one whose shape is unique removes the only
+    expression of it in the SDK. The two are opposite news, so a single "dead types" count misleads.
+    """
+    if not generated.is_dir():
+        return 0, 0, []
+
+    shapes: dict[str, list[str]] = collections.defaultdict(list)
+    bodies: dict[str, str] = {}
+    for path in generated.glob("*.Models.*.g.cs"):
+        if path.name.endswith(".Json.g.cs"):
+            continue
+        match = MODEL_FILE.match(path.name)
+        if not match:
+            continue
+        name = match.group(1)
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        # Erase the type's own identifier so two files differing only by their name hash alike.
+        normalized = re.sub(r"\s+", " ", text.replace(name, "\x00"))
+        digest = hashlib.sha256(normalized.encode()).hexdigest()
+        shapes[digest].append(name)
+        bodies[name] = digest
+
+    emitted = [name for name in orphan_names if name in bodies]
+    unique = [name for name in emitted if len(shapes[bodies[name]]) == 1]
+    return len(emitted), len(emitted) - len(unique), sorted(unique)
+
+
+def report_cost(limit: int) -> int:
+    totals = collections.Counter()
+    rows = []
+    for path in sorted(WORKSPACE.glob("*/src/libs/*/openapi.*")):
+        if path.suffix not in (".yaml", ".yml", ".json"):
+            continue
+        document = load_document(path)
+        if not isinstance(document, dict):
+            continue
+        siblings = [d for d in (load_document(p) for p in sorted(path.parent.glob("asyncapi.*"))
+                                if p.suffix in (".yaml", ".yml", ".json")) if isinstance(d, dict)]
+        _, unreferenced = orphans(document, siblings)
+        if not unreferenced:
+            continue
+        sdk = path.relative_to(WORKSPACE).parts[0]
+        emitted, twinned, unique = removal_cost(path.parent / "Generated", unreferenced)
+        if not emitted:
+            continue
+        totals["orphans"] += len(unreferenced)
+        totals["emitted"] += emitted
+        totals["twinned"] += twinned
+        totals["unique"] += len(unique)
+        rows.append((sdk, len(unreferenced), emitted, twinned, len(unique), unique[:2]))
+
+    print(f"SDKs with emitted orphans: {len(rows)}")
+    print(f"  unreferenced components:                       {totals['orphans']}")
+    print(f"  emitted as a model type:                       {totals['emitted']}")
+    print(f"    an identically-shaped twin exists elsewhere: {totals['twinned']}"
+          f"  (removal costs only the name)")
+    print(f"    shape is unique to this component:           {totals['unique']}"
+          f"  (removal loses the shape)")
+    print("\nmost unique shapes at stake first:")
+    for sdk, orphan_count, emitted, twinned, unique, sample in sorted(
+            rows, key=lambda r: -r[4])[:limit]:
+        print(f"  {sdk}: {unique} unique, {twinned} renames, of {emitted} emitted "
+              f"({orphan_count} unreferenced)")
+        if sample:
+            print(f"      {', '.join(sample)}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -128,6 +212,9 @@ def main() -> int:
     parser.add_argument("--sdk")
     parser.add_argument("--limit", type=int, default=15)
     parser.add_argument("--list", help="print every orphan of one SDK instead of a summary")
+    parser.add_argument("--cost", action="store_true",
+                        help="split the orphans into those with an identically-shaped twin under "
+                             "another name and those whose shape nothing else expresses")
     args = parser.parse_args()
 
     dead = collections.Counter()
@@ -159,6 +246,9 @@ def main() -> int:
         if unreferenced:
             dead[sdk] = len(unreferenced)
             examples[sdk] = sorted(unreferenced)
+
+    if args.cost:
+        return report_cost(args.limit)
 
     if args.list:
         names = examples.get(args.list)
