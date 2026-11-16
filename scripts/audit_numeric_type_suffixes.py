@@ -15,8 +15,13 @@ Four populations, and only the first two are collisions at all:
   400 error body and `DeleteChatResponse2` is the 401. So `DeleteChatResponse400` or
   `DeleteChatUnauthorizedResponse` is derivable, not invented. 45% of collisions.
 - **`Variant<N>`** — union variant naming, a different mechanism entirely. Not counted.
-- **The spec's own name** — `TextScoreV3`, `CodeExecutionTool20260521`. Not a collision; leaving
-  these alone is correct.
+- **The spec's own name** — `TextScoreV3`, `CodeExecutionTool20260521`, and also a numbered name the
+  document declares outright beside its own base (D-ID ships `JsonError` through `JsonError4`,
+  Dedoose `AccountVO` and `AccountVO2`). Not a collision; leaving these alone is correct. Excluding
+  the declared ones was worth 175 names here, so the duplicate share moved from 55.0% to 55.4% -
+  a correction that confirms the figure rather than overturning it. The same error cost 251 names on
+  AutoSDK's own snapshot specs, where OpenRouter alone accounts for 214, so the size of it depends
+  entirely on which documents are in the sample.
 
 Why the duplicate share is easy to under-measure: a duplicate that references another duplicate
 (`SearchRequestsResponseError` holds a `SearchRequestsResponseErrorType`) looks different unless the
@@ -32,6 +37,7 @@ from __future__ import annotations
 import argparse
 import collections
 import hashlib
+import json
 import pathlib
 import re
 import sys
@@ -45,6 +51,40 @@ NOT_A_COLLISION = re.compile(r"Variant\d+$|V\d+$|\d{6,}$")
 # Both files being compared get the same treatment, so this can only make two files look MORE
 # alike, never less - it cannot manufacture a duplicate that is not one.
 STRIP_NUMBERING = re.compile(r"(?<=[A-Za-z])\d{1,3}(?![0-9])")
+
+
+def declared_components(generated: pathlib.Path) -> set[str]:
+    """The component names the SDK's own committed spec declares.
+
+    These are never AutoSDK collisions. Some upstream generators deduplicate by appending an index,
+    so a document arrives already holding `JsonError` through `JsonError4` (D-ID), `AccountVO` and
+    `AccountVO2` (Dedoose), `CanvasPosition` and `CanvasPosition1` (Coze). AutoSDK reproduces those
+    names faithfully and has nothing to merge - they are separate components, not one schema seen
+    twice. The bucket below for "the spec's own name" only caught the ones whose base does not also
+    exist, so a declared `AccountVO2` sitting beside a declared `AccountVO` was counted as a
+    collision. Across AutoSDK's snapshot specs that error was worth 251 names.
+    """
+    library = generated.parent
+    for candidate in sorted(library.glob("openapi.*")):
+        if candidate.suffix not in (".yaml", ".yml", ".json"):
+            continue
+        try:
+            text = candidate.read_text(errors="replace")
+        except OSError:
+            return set()
+        try:
+            document = json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                import yaml
+                document = yaml.safe_load(text)
+            except Exception:
+                return set()
+        if not isinstance(document, dict):
+            return set()
+        schemas = (document.get("components") or {}).get("schemas") or {}
+        return set(schemas) if isinstance(schemas, dict) else set()
+    return set()
 
 
 def shape(path: pathlib.Path) -> str | None:
@@ -62,6 +102,7 @@ def audit(only_sdk: str | None):
     different = collections.Counter()
     variants = 0
     spec_named = 0
+    spec_declared = 0
     total_types = 0
     examples: dict[str, list[str]] = collections.defaultdict(list)
 
@@ -78,6 +119,7 @@ def audit(only_sdk: str | None):
                 files[match.group(1)] = entry
 
         total_types += len(files)
+        declared = declared_components(generated)
         names = set(files)
         for name in sorted(names):
             if not re.search(r"\d$", name):
@@ -87,6 +129,10 @@ def audit(only_sdk: str | None):
                     variants += 1
                 else:
                     spec_named += 1
+                continue
+            if name in declared:
+                # The document itself declares this exact numbered name.
+                spec_declared += 1
                 continue
             base = re.sub(r"\d+$", "", name)
             if base not in names:
@@ -100,7 +146,7 @@ def audit(only_sdk: str | None):
                 if len(examples[sdk]) < 3:
                     examples[sdk].append(name)
 
-    return total_types, duplicates, different, variants, spec_named, examples
+    return total_types, duplicates, different, variants, spec_named, spec_declared, examples
 
 
 def main() -> int:
@@ -111,7 +157,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=10, help="how many SDKs to list (default 10)")
     args = parser.parse_args()
 
-    total, duplicates, different, variants, spec_named, examples = audit(args.sdk)
+    total, duplicates, different, variants, spec_named, spec_declared, examples = audit(args.sdk)
     collisions = sum(duplicates.values()) + sum(different.values())
 
     print(f"generated model types: {total}")
@@ -121,7 +167,8 @@ def main() -> int:
         dif = sum(different.values())
         print(f"  structural duplicates - dedup removes them: {dup} ({dup / collisions:.1%}) in {len(duplicates)} SDK(s)")
         print(f"  genuinely different - need a derived name:  {dif} ({dif / collisions:.1%}) in {len(different)} SDK(s)")
-    print(f"not collisions: {variants} Variant<N>, {spec_named} named by the spec")
+    print(f"not collisions: {variants} Variant<N>, {spec_named} numbered with no base to collide "
+          f"with, {spec_declared} declared under that exact name by the spec")
 
     if different:
         print()
