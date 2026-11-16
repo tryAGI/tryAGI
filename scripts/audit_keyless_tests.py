@@ -11,18 +11,25 @@ This finds the SDKs in that state so the gap is a list rather than an impression
 
 ## What counts as key-free, and why this is a heuristic
 
-A test file is counted as key-free when it declares at least one `[TestMethod]` and mentions none of
-the auth gateways: `GetEnvironmentVariable`, `AssertInconclusive`, or a call to a helper whose name
-starts with `GetAuthenticatedClient`, `GetApiKey` or `GetClient`.
+A **test method** is counted as key-free when its own body mentions none of the auth gateways:
+`GetEnvironmentVariable`, `AssertInconclusive`, or a call to a helper whose name starts with
+`GetAuthenticatedClient`, `GetApiKey` or `GetClient`. Bodies are taken by brace matching after
+comments and string literals are erased, so a gateway named in a fixture or a comment does not count.
+
+This used to work per *file*, and that undercounted: Pinecone's `Examples/EmbeddingGenerator.cs`
+declares three tests, one of which calls `GetAuthenticatedClient()` while the other two build a
+generator locally and assert on `GetService`. The file was counted as fully gated, so two tests that
+run - and pass - with no key were invisible. Per method, Pinecone reports 4, exactly the number the
+runner passes there with no key.
 
 That is a proxy, and it errs in both directions. A test can reach a key through a helper this does
 not name, and a test that mentions `GetEnvironmentVariable` may still run when the variable is
 optional. So the counts here are a shortlist to check by running, not a verdict - `--verify NAME`
 prints the command that settles one.
 
-Checked against three real runs on 2026-11-17, and it agreed with all three: Coze 2 key-free of 11
-(ran as 2 passed, 9 skipped), DId 3 of 18 (3 passed, 15 skipped), Martian 0 of 7 (reported
-`Skipped!`, 0 passed).
+Checked against four real runs, and it agrees with all four: Pinecone 4 of 10 (4 passed, 6 skipped),
+Coze 2 of 11 (2 passed, 9 skipped), DId 3 of 18 (3 passed, 15 skipped), Martian 2 of 9 after its
+streaming test (before it, 0 of 7 and nothing but skips).
 
 ## What it found, 2026-11-17
 
@@ -43,6 +50,10 @@ import pathlib
 import re
 import sys
 
+# Isolated mode (`python3 -I`) drops the script's own directory from sys.path.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from csharp_references import strip_non_code  # noqa: E402
+
 WORKSPACE = pathlib.Path(__file__).resolve().parent.parent
 TEST_METHOD = re.compile(r"\[\s*TestMethod\s*\]")
 AUTH_GATEWAY = re.compile(
@@ -50,8 +61,32 @@ AUTH_GATEWAY = re.compile(
 )
 
 
+def test_method_bodies(text: str):
+    """Each [TestMethod]'s source, by brace matching from the attribute.
+
+    Per method, not per file. A file that gates one test does not gate the others: Pinecone's
+    Examples/EmbeddingGenerator.cs declares three, of which one calls GetAuthenticatedClient() and
+    two build a generator locally and assert on GetService. Counting the file as gated hid two
+    tests that run - and do pass - with no key.
+    """
+    code = strip_non_code(text)
+    for match in TEST_METHOD.finditer(code):
+        start = code.find("{", match.end())
+        if start < 0:
+            continue
+        depth = 0
+        for index in range(start, len(code)):
+            if code[index] == "{":
+                depth += 1
+            elif code[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    yield code[match.end():index + 1]
+                    break
+
+
 def scan(sdk_tests: pathlib.Path) -> tuple[int, int, list[str]]:
-    """(test methods in all files, test methods in key-free files, those files' names)."""
+    """(test methods in all files, test methods that reach no auth gateway, those files' names)."""
     total = keyless = 0
     files: list[str] = []
     for path in sorted(sdk_tests.rglob("*.cs")):
@@ -61,71 +96,15 @@ def scan(sdk_tests: pathlib.Path) -> tuple[int, int, list[str]]:
             text = path.read_text(errors="replace")
         except OSError:
             continue
-        methods = len(TEST_METHOD.findall(text))
-        if not methods:
+        bodies = list(test_method_bodies(text))
+        if not bodies:
             continue
-        total += methods
-        if not AUTH_GATEWAY.search(text):
-            keyless += methods
+        total += len(bodies)
+        free = sum(1 for body in bodies if not AUTH_GATEWAY.search(body))
+        keyless += free
+        if free:
             files.append(path.name)
     return total, keyless, files
-
-
-BASELINE = WORKSPACE / "scripts" / "keyless-tests-baseline.json"
-
-
-def counts() -> dict[str, int]:
-    found: dict[str, int] = {}
-    for sdk in sorted(p for p in WORKSPACE.iterdir() if p.is_dir() and not p.name.startswith(".")):
-        tests = sdk / "src" / "tests"
-        if tests.is_dir():
-            total, keyless, _ = scan(tests)
-            if total:
-                found[sdk.name] = keyless
-    return found
-
-
-def ratchet(write: bool) -> int:
-    """A floor, not a target: 137 SDKs have no key-free test and demanding one today would only
-    make the check red. What this catches is losing coverage that exists - a regenerated suite, a
-    deleted file, a test that grew an environment variable - which is invisible otherwise, because
-    a suite of nothing but skips reports success.
-
-    Note this can only run where the SDK repositories are checked out beside this one. The
-    workspace repository tracks no SDK, so its own CI cannot see them.
-    """
-    current = counts()
-    if write:
-        BASELINE.write_text(json.dumps(dict(sorted(current.items())), indent=2) + "\n")
-        covered = sum(1 for v in current.values() if v)
-        print(f"baseline written: {len(current)} SDKs, {covered} with key-free coverage")
-        return 0
-
-    if not BASELINE.is_file():
-        print(f"no baseline at {BASELINE}; run --write-baseline first", file=sys.stderr)
-        return 1
-
-    previous = json.loads(BASELINE.read_text())
-    regressions = [
-        (sdk, previous[sdk], current.get(sdk, 0))
-        for sdk in sorted(previous)
-        if sdk in current and current[sdk] < previous[sdk]
-    ]
-    missing = sorted(sdk for sdk in previous if sdk not in current)
-    gains = [(sdk, previous.get(sdk, 0), count) for sdk, count in sorted(current.items())
-             if count > previous.get(sdk, 0)]
-
-    for sdk, was, now in regressions:
-        print(f"REGRESSION {sdk}: {was} key-free test(s) -> {now}")
-    for sdk in missing:
-        print(f"MISSING {sdk}: had {previous[sdk]} key-free test(s), no test project now")
-    for sdk, was, now in gains:
-        print(f"gained    {sdk}: {was} -> {now}; re-run --write-baseline to lock it in")
-
-    if regressions or missing:
-        return 1
-    print(f"no regressions against {len(previous)} baselined SDKs")
-    return 0
 
 
 def main() -> int:
