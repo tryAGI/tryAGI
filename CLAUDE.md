@@ -267,16 +267,45 @@ separates two cases that look alike:
   it routes and the status says nothing about whether the path exists. `docs.letta.com` serves no
   `docs.json`, `mint.json` or spec of its own.
 
-  The one source that does track upstream is the server itself. `letta/letta` on Docker Hub is
-  actively published — `0.34.63`, 2026-11-15 — and Letta is FastAPI, which serves its own
-  `/openapi.json`. That makes the generation input a container run rather than a `curl`, the same
-  shape Chroma, Weaviate and Ollama already use for *tests*, moved to generation time. The pinned
-  spec is from 2026-08-14 and the server has gone 0.34.12 → 0.34.63 since, so this is worth doing —
-  but it has **not been verified here**: `docker run letta/letta` is refused in this environment, so
-  nobody has yet confirmed the container serves a usable document.
+  **The container idea was tested and is dead.** `letta/letta` on Docker Hub is actively published
+  (`0.34.63`, 2026-11-15) and its description still reads "Run the Letta service (previously
+  MemGPT)", which is what made it look like a tracking source: Letta's server was FastAPI and would
+  serve its own `/openapi.json`. Running it answers otherwise - the container prints the **`letta`
+  CLI's help text and exits 0**. There is no server in it and nothing listening on 8283. The same
+  repository now publishes the agent CLI under the same name; PyPI says so too, where `letta`
+  0.34.12 gives its source as `letta-ai/letta-code`.
+
+  The tag timeline confirms it rather than leaving it to one run: server tags end at **0.16.8,
+  2026-05-14**, then nothing until a 2026-09 wave of 0.34.x CLI tags. So even the last server image
+  predates the pinned spec (2026-08-14) by three months and would be strictly worse than what is
+  committed.
+
+  Which settles the question: **the pin is not merely correct, it is the newest source that exists.**
+  There is no tracking source to find, and this SDK is frozen until Letta publishes a v1 spec again
+  or the SDK is retired. Do not re-derive the container idea from the image description - it
+  describes a product that image no longer contains.
 - **Mistral** reports its repository as unreachable, which matches the known 404 on
   `mistralai/platform-docs-public`. **Voicebox**'s `${VOICEBOX_REPOSITORY_REF:-main}` defaults to the
   default branch and is fine.
+
+### A `format` only means something in a schema position
+
+Asked how many SDKs declare a typeless schema with a format nothing recognizes - the shape that
+aborted generation outright before AutoSDK gained its `(null, _) => "object"` fallback - a walk over
+every dict holding a `format` key and no `type` answered **52 schemas in 16 SDKs**, with formats
+like `sse`, `mp4`, `wav`, `gguf` and one `'2.7'`.
+
+Not one of them is a schema. Vectara's are the `format: sse` field of an `x-fern-streaming` vendor
+extension; OpenRouter's sit under `components/schemas/ChatContentAudio/example/input_audio`;
+Ollama's and Shotstack's are inside request and response **example payloads**. The generator never
+type-maps any of that. Restricted to schema positions - excluding anything under `example`,
+`examples`, `default` or an `x-` extension - the answer is **0 of 223 specs**.
+
+Which also sizes the fallback honestly: it is hardening against a shape no committed spec currently
+has, not a rescue of a fleet that was one vendor extension from failing. Those formats being media
+types (`mp4`, `wav`, `srt`, `pdf`, `gguf`) is the tell - a media type is what a payload *is*, never
+what a JSON value's type is, so finding one next to a `format` key means you are reading data, not a
+schema.
 
 ### A regeneration can break a build with no spec change at all
 

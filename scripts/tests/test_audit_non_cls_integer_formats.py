@@ -78,6 +78,27 @@ class ClsComplianceDetectionTests(unittest.TestCase):
         self.assertFalse(MODULE.declares_cls_compliance(self.sdk))
 
 
+class ZeroInputTests(unittest.TestCase):
+    def test_a_run_over_no_specs_is_an_error_not_a_pass(self) -> None:
+        # The failure mode that makes a CI job look green while checking nothing. The workspace repo
+        # tracks no SDK sources, so this is the state a job here would actually be in.
+        import contextlib
+        import io
+        import sys
+
+        argv = sys.argv
+        sys.argv = ["audit", "--sdk", "ThisSdkDoesNotExist"]
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = MODULE.main()
+        finally:
+            sys.argv = argv
+
+        self.assertEqual(code, 2)
+        self.assertIn("scanned no specs", err.getvalue())
+
+
 class NonClsTableTests(unittest.TestCase):
     def test_the_table_holds_int8_alone(self) -> None:
         # Guards the correction: re-adding uint16/uint32 would resurrect six false positives.
