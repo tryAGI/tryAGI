@@ -207,6 +207,30 @@ python3 -I scripts/audit_orphan_type_usage.py --sdk <Name>        # what the SDK
 An unreachable component is often a real vocabulary the document simply cannot connect to an
 operation. Treat the audit as a question, not a verdict.
 
+### A workspace-wide figure is a snapshot of a moving tree
+
+Every SDK's auto-update workflow fetches its spec every few hours and opens a PR, so the sibling
+`Generated/` trees change under you — including mid-session, as soon as a repo is fast-forwarded in
+order to commit something unrelated.
+
+Measured on 2026-11-17: the numeric-suffix audit went from 8796 collisions to 8010 in the course of
+one session, and almost none of it was the work being done. **17 "Updated OpenAPI spec" commits**
+landed in that window:
+
+| | collisions |
+|---|---|
+| Braintrust spec update | −502 |
+| Topaz | −170 |
+| Botpress | −96 |
+| the D-ID duplicate collapse (deliberate) | −6 |
+
+That is −774 of the −786 the total moved, and three of the four are upstream refreshes.
+
+So when quoting a workspace-wide number: name the date, and if it has to be comparable, measure both
+sides from pinned revisions rather than from the working trees.
+`audit_snapshot_collisions --rev X --after-rev Y` exists for exactly that reason — the dedup figures
+came from AutoSDK revisions and are reproducible; the sibling-SDK figures are not.
+
 ### The audits need PyYAML built with libyaml
 
 `spec_tools.load_document` parses with `CSafeLoader` when it exists. The pure-Python loader is about
