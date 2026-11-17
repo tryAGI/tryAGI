@@ -294,6 +294,33 @@ separates two cases that look alike:
   `mistralai/platform-docs-public`. **Voicebox**'s `${VOICEBOX_REPOSITORY_REF:-main}` defaults to the
   default branch and is fine.
 
+### A truncated listing undercounts, silently and in one direction
+
+The auto-update workflow titled every PR "feat: Updated OpenAPI spec" whether or not the spec moved,
+which is fixed in `tryAGI/workflows` as of 2026-11-17: the commit message and title now follow a
+`spec_changed` output, and a regeneration from a byte-identical document says
+`chore: Regenerated from an unchanged spec`.
+
+Checking that against the 19 open auto-update PRs gave **three different answers** as the data source
+improved, and the first two were wrong the same way:
+
+| how the files were listed | feat | chore |
+|---|---|---|
+| `per_page=300` (the endpoint caps at 100) | 4 | 15 |
+| `--paginate` (the endpoint caps at 3000 files per PR) | 9 | 10 |
+| local `git diff origin/main FETCH_HEAD` (no cap) | **12** | **7** |
+
+Each cap hid spec files behind generated ones and so reported a spec change as mere drift. Anthropic,
+ElevenLabs and OpenAI all changed their spec and all three read as drift-only until the local diff.
+The lesson generalises past this audit: when a listing comes back at exactly 100 or exactly 3000
+rows, that is the API's limit, not the answer - and where the repositories are checked out, `git
+diff` has no limit at all. The workflow's own detection was never affected, since it runs
+`git diff --name-only` locally.
+
+The finding that survives: **7 of 19** open auto-update PRs changed no spec at all - D-ID's touches
+4560 files and not one spec line - so a third of what looks like upstream movement is the generator
+moving instead.
+
 ### A `format` only means something in a schema position
 
 Asked how many SDKs declare a typeless schema with a format nothing recognizes - the shape that

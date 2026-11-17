@@ -64,6 +64,7 @@ from __future__ import annotations
 import argparse
 import collections
 import hashlib
+import json
 import pathlib
 import re
 import sys
@@ -208,6 +209,91 @@ def report_cost(limit: int) -> int:
     return 0
 
 
+BASELINE = WORKSPACE / "scripts" / "unreferenced-components-baseline.json"
+
+
+def orphan_counts() -> dict[str, int]:
+    """Orphans per SDK, the same way the default report counts them."""
+    counts: dict[str, int] = {}
+    for path in sorted(WORKSPACE.glob("*/src/libs/*/openapi.*")):
+        if path.suffix not in (".yaml", ".yml", ".json"):
+            continue
+        document = load_document(path)
+        if not isinstance(document, dict):
+            continue
+        siblings = [
+            doc for doc in (load_document(p) for p in sorted(path.parent.glob("asyncapi.*"))
+                            if p.suffix in (".yaml", ".yml", ".json"))
+            if isinstance(doc, dict)
+        ]
+        all_names, unreferenced = orphans(document, siblings)
+        if not all_names:
+            continue
+        counts[path.relative_to(WORKSPACE).parts[0]] = len(unreferenced)
+    return counts
+
+
+def ratchet(write: bool, tolerance: int) -> int:
+    """A threshold, not an equality check.
+
+    This total moves on its own: every SDK's auto-update refreshes its spec every few hours, and a
+    refresh routinely adds or removes components. An equality check would be red permanently and
+    therefore read by nobody - the same reason the spec-source audit needed a `DELIBERATE` table.
+
+    What is worth a person's attention is a **jump**: a refresh that adds a large unreachable
+    vocabulary at once, or an SDK that drops out entirely. Drift under the tolerance is printed as
+    information and does not fail.
+
+    It exists because the figure goes stale silently and the staleness is invisible. This file's own
+    documentation carried 2180 as the workspace-wide count when the workspace-wide count was 2444 -
+    2180 is the `--cost` pass's subset, over the SDKs that emit at least one orphan.
+
+    Only runs where the SDK repositories are checked out beside this one.
+    """
+    current = orphan_counts()
+    if not current:
+        print(
+            "error: found no SDK spec to count. Run this where the SDK repositories are checked "
+            "out beside this one; a run over nothing is not a pass.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if write:
+        BASELINE.write_text(json.dumps(dict(sorted(current.items())), indent=2) + "\n")
+        print(f"baseline written: {len(current)} SDKs, {sum(current.values())} orphans in total")
+        return 0
+
+    if not BASELINE.is_file():
+        print(f"no baseline at {BASELINE}; run --write-baseline first", file=sys.stderr)
+        return 1
+
+    previous = json.loads(BASELINE.read_text())
+    jumps, drift = [], []
+    for sdk in sorted(set(previous) | set(current)):
+        was, now = previous.get(sdk), current.get(sdk)
+        if was is None:
+            (jumps if now > tolerance else drift).append((sdk, "new", now))
+        elif now is None:
+            jumps.append((sdk, was, "gone"))
+        elif abs(now - was) > tolerance:
+            jumps.append((sdk, was, now))
+        elif now != was:
+            drift.append((sdk, was, now))
+
+    for sdk, was, now in jumps:
+        print(f"JUMP   {sdk}: {was} -> {now} orphans")
+    for sdk, was, now in drift:
+        print(f"drift  {sdk}: {was} -> {now}")
+
+    total_was, total_now = sum(previous.values()), sum(current.values())
+    print(f"total {total_was} -> {total_now} across {len(current)} SDKs (tolerance {tolerance})")
+    if jumps:
+        print("re-run --write-baseline once each jump has been looked at")
+        return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -218,7 +304,17 @@ def main() -> int:
     parser.add_argument("--cost", action="store_true",
                         help="split the orphans into those with an identically-shaped twin under "
                              "another name and those whose shape nothing else expresses")
+    parser.add_argument("--check", action="store_true",
+                        help="fail when an SDK's orphan count jumps by more than --tolerance, or "
+                             "when a baselined SDK disappears")
+    parser.add_argument("--write-baseline", action="store_true",
+                        help="record today's per-SDK orphan counts")
+    parser.add_argument("--tolerance", type=int, default=25,
+                        help="how much an SDK may move before it is a jump (default 25)")
     args = parser.parse_args()
+
+    if args.check or args.write_baseline:
+        return ratchet(args.write_baseline, args.tolerance)
 
     dead = collections.Counter()
     totals: dict[str, int] = {}
