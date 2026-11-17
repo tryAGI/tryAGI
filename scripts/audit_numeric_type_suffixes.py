@@ -36,7 +36,9 @@ from __future__ import annotations
 
 import argparse
 import collections
+import datetime
 import functools
+import subprocess
 import hashlib
 import json
 import pathlib
@@ -87,6 +89,14 @@ def shape(path: pathlib.Path) -> str | None:
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
+def head_revision(sdk: str) -> str:
+    """The SDK repository's current commit, so a reading can be reproduced."""
+    result = subprocess.run(
+        ["git", "-C", str(WORKSPACE / sdk), "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True)
+    return result.stdout.strip() or "unknown"
+
+
 def audit(only_sdk: str | None):
     duplicates = collections.Counter()
     different = collections.Counter()
@@ -95,6 +105,7 @@ def audit(only_sdk: str | None):
     spec_declared = 0
     total_types = 0
     examples: dict[str, list[str]] = collections.defaultdict(list)
+    revisions: dict[str, str] = {}
 
     for generated in sorted(WORKSPACE.glob("*/src/libs/*/Generated")):
         sdk = generated.parts[-4] if len(generated.parts) >= 4 else generated.parts[0]
@@ -108,6 +119,7 @@ def audit(only_sdk: str | None):
             if match:
                 files[match.group(1)] = entry
 
+        revisions[sdk] = head_revision(sdk)
         total_types += len(files)
         declared = declared_components(generated)
         names = set(files)
@@ -136,7 +148,7 @@ def audit(only_sdk: str | None):
                 if len(examples[sdk]) < 3:
                     examples[sdk].append(name)
 
-    return total_types, duplicates, different, variants, spec_named, spec_declared, examples
+    return total_types, duplicates, different, variants, spec_named, spec_declared, examples, revisions
 
 
 def main() -> int:
@@ -147,9 +159,18 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=10, help="how many SDKs to list (default 10)")
     args = parser.parse_args()
 
-    total, duplicates, different, variants, spec_named, spec_declared, examples = audit(args.sdk)
+    total, duplicates, different, variants, spec_named, spec_declared, examples, sdk_revisions = audit(args.sdk)
     collisions = sum(duplicates.values()) + sum(different.values())
 
+    # Stamp the reading. These trees are refreshed by each SDK's auto-update workflow every few
+    # hours, so a figure without a date cannot be compared with anything: on 2026-11-17 the
+    # collision count moved 8796 -> 8010 inside one session, 774 of 786 of it upstream refreshes.
+    print(f"measured {datetime.datetime.now().astimezone():%Y-%m-%d %H:%M %z}")
+    for sdk, revision in sorted(sdk_revisions.items())[:3]:
+        print(f"  e.g. {sdk} at {revision}")
+    if len(sdk_revisions) > 3:
+        print(f"  ... {len(sdk_revisions)} repositories, revisions above are a sample")
+    print()
     print(f"generated model types: {total}")
     print(f"collisions (Name<N> where Name also exists): {collisions}")
     if collisions:
