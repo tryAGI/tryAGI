@@ -185,16 +185,22 @@ Use `Anthropic/src/libs/Anthropic/Extensions/AnthropicClient.ChatClient.cs` as t
 
 ### Never delete a component because an audit called it unreachable
 
-`scripts/audit_unreferenced_components.py` finds components no `$ref` reaches — 2180 of them across
-the workspace — and the number invites deletion. Two checks have to run first, and both have
-overturned the conclusion already:
+`scripts/audit_unreferenced_components.py` finds components no `$ref` reaches — **2444 across 81
+SDKs**, of 34046 declared — and the number invites deletion. Two checks have to run first, and both
+have overturned the conclusion already.
+
+Mind which of its two figures you quote. `--cost` reports **2180**, and that is not a stale 2444:
+the cost pass skips any SDK whose orphans produce no generated type at all (`if not emitted:
+continue`), so its total covers only the **70** SDKs where at least one orphan really is a public
+type. Both numbers are right and they answer different questions - this file described 2180 as the
+workspace-wide count for a while, which it is not.
 
 ```bash
 python3 -I scripts/audit_unreferenced_components.py --cost        # renames vs lost shapes
 python3 -I scripts/audit_orphan_type_usage.py --sdk <Name>        # what the SDK's own code uses
 ```
 
-- **`--cost`**: of 1946 orphans emitted as types, only **452 (23%) have an identically-shaped twin**
+- **`--cost`** (over those 70 SDKs, 2180 orphans): of 1946 emitted as types, only **452 (23%) have an identically-shaped twin**
   under another name, where deleting costs the readable name alone. The other **1494 (77%) are the
   only expression of their shape**. D-ID is the exception that nearly misled me — 163 twins against
   111 unique, the one large SDK where renaming dominates.

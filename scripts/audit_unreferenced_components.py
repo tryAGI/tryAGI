@@ -189,7 +189,10 @@ def report_cost(limit: int) -> int:
         rows.append((sdk, len(unreferenced), emitted, twinned, len(unique), unique[:2]))
 
     print(f"SDKs with emitted orphans: {len(rows)}")
-    print(f"  unreferenced components:                       {totals['orphans']}")
+    # Say so explicitly: an SDK whose orphans produce no generated type is skipped above, so this
+    # total is NOT the workspace-wide orphan count the default mode prints. Quoting it as that is a
+    # mistake this file's own documentation made.
+    print(f"  unreferenced components (in those SDKs only):  {totals['orphans']}")
     print(f"  emitted as a model type:                       {totals['emitted']}")
     print(f"    an identically-shaped twin exists elsewhere: {totals['twinned']}"
           f"  (removal costs only the name)")
