@@ -65,8 +65,11 @@ def load_document(path: pathlib.Path):
         import yaml
     except ImportError:
         return None
+    # CSafeLoader is libyaml; the pure-Python loader is ~11x slower on these documents and was 76%
+    # of audit_orphan_type_usage's runtime (58s of 77s). Fall back when PyYAML was built without it.
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     try:
-        return yaml.safe_load(text)
+        return yaml.load(text, Loader=loader)
     except Exception:
         return None
 
