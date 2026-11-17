@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import sys
 
 SPEC_SUFFIXES = (".yaml", ".yml", ".json")
 
@@ -31,6 +32,28 @@ SPEC_SUFFIXES = (".yaml", ".yml", ".json")
 # So this is for walking source trees, and it is wrong for walking a snapshot tree - don't reach for
 # `source_files` in an audit whose subject IS the baselines (audit_snapshot_collisions is one).
 PRUNED_DIRECTORIES = frozenset({"bin", "obj", "Snapshots", "_snapshots", "TestResults", "node_modules"})
+
+
+_WARNED_ABOUT_PURE_YAML = False
+
+
+def _yaml_loader(yaml):
+    """libyaml's loader, or the pure-Python one with a warning that says what it costs.
+
+    The pure loader is ~11x slower on these documents - 8.80s against 0.79s on Anthropic's 7MB spec -
+    and it was 76% of one audit's runtime. A PyYAML built without libyaml would make every audit
+    slow with nothing to show why, so say it once rather than let it be mysterious.
+    """
+    loader = getattr(yaml, "CSafeLoader", None)
+    if loader is not None:
+        return loader
+
+    global _WARNED_ABOUT_PURE_YAML
+    if not _WARNED_ABOUT_PURE_YAML:
+        _WARNED_ABOUT_PURE_YAML = True
+        print("warning: PyYAML has no CSafeLoader (libyaml); spec parsing will be ~11x slower. "
+              "Reinstall PyYAML with libyaml available.", file=sys.stderr)
+    return yaml.SafeLoader
 
 
 def source_files(root: pathlib.Path, suffix: str = ".cs"):
@@ -65,9 +88,7 @@ def load_document(path: pathlib.Path):
         import yaml
     except ImportError:
         return None
-    # CSafeLoader is libyaml; the pure-Python loader is ~11x slower on these documents and was 76%
-    # of audit_orphan_type_usage's runtime (58s of 77s). Fall back when PyYAML was built without it.
-    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    loader = _yaml_loader(yaml)
     try:
         return yaml.load(text, Loader=loader)
     except Exception:

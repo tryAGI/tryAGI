@@ -74,6 +74,30 @@ class DeclaredComponentsTests(unittest.TestCase):
             self.assertEqual(MODULE.declared_components(document), set(), repr(document))
 
 
+class YamlLoaderTests(unittest.TestCase):
+    def test_prefers_libyaml_when_present(self) -> None:
+        import yaml
+        self.assertIs(MODULE._yaml_loader(yaml), yaml.CSafeLoader)
+
+    def test_falls_back_and_warns_once(self) -> None:
+        import contextlib
+        import io
+        import types
+
+        MODULE._WARNED_ABOUT_PURE_YAML = False
+        without = types.SimpleNamespace(SafeLoader=object())
+        captured = io.StringIO()
+        with contextlib.redirect_stderr(captured):
+            first = MODULE._yaml_loader(without)
+            second = MODULE._yaml_loader(without)
+
+        self.assertIs(first, without.SafeLoader)
+        self.assertIs(second, without.SafeLoader)
+        # Once, not per document: an audit parses hundreds.
+        self.assertEqual(captured.getvalue().count("warning:"), 1)
+        self.assertIn("11x slower", captured.getvalue())
+
+
 class SourceFilesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

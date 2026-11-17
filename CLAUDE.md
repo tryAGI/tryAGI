@@ -207,6 +207,17 @@ python3 -I scripts/audit_orphan_type_usage.py --sdk <Name>        # what the SDK
 An unreachable component is often a real vocabulary the document simply cannot connect to an
 operation. Treat the audit as a question, not a verdict.
 
+### The audits need PyYAML built with libyaml
+
+`spec_tools.load_document` parses with `CSafeLoader` when it exists. The pure-Python loader is about
+**11x slower** on these documents (8.80s against 0.79s on Anthropic's 7MB spec) and was 76% of one
+audit's runtime before the switch. A PyYAML built without libyaml still works and `spec_tools` warns
+once on stderr, because otherwise every audit would simply be slow with nothing to say why.
+
+For reference, with libyaml: orphan-usage 18.6s, duplicate-components 12.2s, numeric-suffixes 11.8s,
+collision-distinguisher 8.9s, response-required-defaults 8.3s, unreferenced-components 7.2s,
+undeclared-streams 6.3s, generation-inputs 3.5s, keyless-tests 1.2s.
+
 ### Read the contract, not the artifact
 
 Three wrong entries went into Cartesia's CLAUDE.md in one sitting, each from inspecting one artifact
