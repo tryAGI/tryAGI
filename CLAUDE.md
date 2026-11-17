@@ -207,6 +207,32 @@ python3 -I scripts/audit_orphan_type_usage.py --sdk <Name>        # what the SDK
 An unreachable component is often a real vocabulary the document simply cannot connect to an
 operation. Treat the audit as a question, not a verdict.
 
+### Auto-update cannot notice a spec that stopped changing
+
+Each SDK's auto-update workflow compares the fetched spec with the committed one. A spec fetched from
+a branch that upstream froze never changes, so no PR is opened and the SDK looks current while
+falling behind. Runway hit this with `runwayml/openapi`'s `next` branch and ended up "29 models and
+a whole endpoint behind"; its fix — `scripts/check-spec-source.sh`, a CI job that fails when the
+fetch points anywhere but the upstream default branch — is the generalisable one.
+
+Checked the other 50 SDKs that fetch a spec from GitHub by ref, comparing the fetched branch's last
+commit with the default branch's (2026-11-17):
+
+| SDK | fetches | its last commit | default branch |
+|---|---|---|---|
+| **Weaviate** | `weaviate/weaviate` @ `openapi_docs` | **2025-02-18** | `main`, 2026-11-16 |
+| **Julep** | `julep-ai/julep` @ `dev` | **2026-03-13** | `main`, 2026-07-29 |
+
+Weaviate's source has been frozen for 21 months. Neither is fixed here: switching the source
+triggers a full regeneration with unknown breakage, which is exactly the 1026 uncommitted paths
+Runway's own fix produced, so each wants a deliberate pass.
+
+Not the same thing, but worth knowing: **Letta** pins `letta-ai/letta` to the commit
+`56ba9c25552605eec89de8ed3dc6394b625c1993`. That is frozen by design and visible in `generate.sh`,
+rather than silently stale — the question there is whether the pin is still wanted, not whether it
+is a defect. Voicebox's `${VOICEBOX_REPOSITORY_REF:-main}` defaults to the default branch and is
+fine.
+
 ### A workspace-wide figure is a snapshot of a moving tree
 
 Every SDK's auto-update workflow fetches its spec every few hours and opens a PR, so the sibling
