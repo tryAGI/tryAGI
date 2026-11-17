@@ -227,11 +227,22 @@ Weaviate's source has been frozen for 21 months. Neither is fixed here: switchin
 triggers a full regeneration with unknown breakage, which is exactly the 1026 uncommitted paths
 Runway's own fix produced, so each wants a deliberate pass.
 
-Not the same thing, but worth knowing: **Letta** pins `letta-ai/letta` to the commit
-`56ba9c25552605eec89de8ed3dc6394b625c1993`. That is frozen by design and visible in `generate.sh`,
-rather than silently stale — the question there is whether the pin is still wanted, not whether it
-is a defect. Voicebox's `${VOICEBOX_REPOSITORY_REF:-main}` defaults to the default branch and is
-fine.
+Run it from here rather than copying Runway's script into fifty repositories:
+
+```bash
+python3 -I scripts/audit_spec_source_branches.py   # exits 1 when a fetch points off the default branch
+```
+
+It asks Runway's question for every SDK at once — 47 fetches are on a default branch or a tag — and
+separates two cases that look alike:
+
+- **Letta** pins `letta-ai/letta` at `56ba9c25` *because upstream deleted the spec*:
+  `fern/openapi.json` is gone from `main` and a code search finds no `openapi.json` anywhere in that
+  repository. The pin is the only way to reach a spec that no longer exists, so it is correct — but it
+  also means the SDK is frozen until a new source is found, which is the real open question there.
+- **Mistral** reports its repository as unreachable, which matches the known 404 on
+  `mistralai/platform-docs-public`. **Voicebox**'s `${VOICEBOX_REPOSITORY_REF:-main}` defaults to the
+  default branch and is fine.
 
 ### A workspace-wide figure is a snapshot of a moving tree
 
