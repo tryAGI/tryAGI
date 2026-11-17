@@ -44,6 +44,16 @@ RAW = re.compile(
     r"(refs/heads/[^/\s\"']+|refs/tags/[^/\s\"']+|[^/\s\"']+)/"
 )
 SHA = re.compile(r"^[0-9a-f]{7,40}$")
+# Refs that are off the default branch on purpose, with the reason. Without this the check can never
+# be a gate: it would exit 1 for ever on a ref that is correct, and a permanently red check is one
+# nobody reads. A row here is a claim that someone looked, so it carries the reason, and the audit
+# still prints these so they can be re-read rather than forgotten.
+DELIBERATE = {
+    ("Julep", "julep-ai/julep", "v1"): (
+        "this SDK is for Julep v1, which upstream preserved on the `v1` branch; `main` is Julep 3, "
+        "a ground-up rewrite with no migration path and no OpenAPI document - a different API"
+    ),
+}
 # `spec_revision="56ba9c..."` two lines above the URL. Resolving these is what tells a deliberate
 # commit pin (Letta) apart from a ref nobody can determine, and the difference matters: one is a
 # decision, the other is a gap in this audit.
@@ -98,7 +108,7 @@ def main() -> int:
                         help="skip the GitHub calls; report refs without comparing dates")
     args = parser.parse_args()
 
-    non_default, pinned, unresolved, fine = [], [], [], 0
+    non_default, pinned, unresolved, deliberate, fine = [], [], [], [], 0
 
     for script in sorted(WORKSPACE.glob("*/src/libs/*/generate.sh")):
         sdk = script.relative_to(WORKSPACE).parts[0]
@@ -125,8 +135,12 @@ def main() -> int:
                 fine += 1
                 continue
             if args.offline:
-                (fine := fine + 1) if name in ("main", "master") else non_default.append(
-                    (sdk, repo, name, "?", "?", "?"))
+                if name in ("main", "master"):
+                    fine += 1
+                elif (sdk, repo, name) in DELIBERATE:
+                    deliberate.append((sdk, repo, name, DELIBERATE[(sdk, repo, name)]))
+                else:
+                    non_default.append((sdk, repo, name, "?", "?", "?"))
                 continue
 
             info = github(f"repos/{repo}")
@@ -136,6 +150,9 @@ def main() -> int:
                 continue
             if name == default:
                 fine += 1
+                continue
+            if (sdk, repo, name) in DELIBERATE:
+                deliberate.append((sdk, repo, name, DELIBERATE[(sdk, repo, name)]))
                 continue
             non_default.append((sdk, repo, name, last_commit(repo, name),
                                 default, last_commit(repo, default)))
@@ -147,6 +164,10 @@ def main() -> int:
         print(f"  {sdk}: {repo} @ {name} (last {name_date})"
               f" vs default {default} (last {default_date})"
               + ("   <- the fetched branch is behind" if stale else ""))
+    if deliberate:
+        print(f"\noff the default branch on purpose: {len(deliberate)}")
+        for sdk, repo, name, reason in deliberate:
+            print(f"  {sdk}: {repo} @ {name}\n      {reason}")
     if pinned:
         print(f"\npinned to a commit, frozen by design: {len(pinned)}")
         for sdk, repo, name in pinned:

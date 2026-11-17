@@ -221,14 +221,29 @@ commit with the default branch's (2026-11-17):
 | SDK | fetches | its last commit | default branch |
 |---|---|---|---|
 | ~~**Weaviate**~~ | ~~`weaviate/weaviate` @ `openapi_docs`~~ | ~~**2025-02-18**~~ | fixed 2026-11-17 |
-| **Julep** | `julep-ai/julep` @ `dev` | **2026-03-13** | `main`, 2026-07-29 |
+| ~~**Julep**~~ | ~~`julep-ai/julep` @ `dev`~~ | ~~**2026-03-13**~~ | not a defect; see below |
 
 Weaviate's source had been frozen for 21 months, and the switch cost two spec patches rather than a
 URL swap — the new document carries OpenAPI 3.1's `"type": ["string", "null"]` inside a
 `swagger: "2.0"` envelope, and a `text/event-stream` response with no schema; both are in
 `SPEC_WORKAROUNDS.md`. What the switch bought: **68 operations to 131**, 79 definitions to 140, and
 nothing removed. That is the scale of what a frozen source hides — this SDK shipped 1.29.0 while the
-server reached 1.41.0-rc.0. Julep is not fixed; it wants the same deliberate pass.
+server reached 1.41.0-rc.0.
+
+**Julep was the opposite case, and the dates said nothing useful about it.** Its `dev` branch and the
+default `main` really are four months apart, but `main` is **Julep 3** - upstream's own README states
+it is "a ground-up rewrite; there is no migration path - v1 and v3 are different products" - and it
+carries no OpenAPI document anywhere in the repository. Pointing the fetch at the default branch
+would not have updated this SDK, it would have replaced it with a different API's. Julep v1 is
+preserved on the `v1` branch, which is the same commit as `dev` and serves a byte-identical document,
+so the fetch now reads `v1`: the same bytes under a ref whose name states the intent, where `dev`
+reads like a branch that fell behind. Worth knowing separately: `api.julep.ai` is retired - every
+path, existing or not, answers with an HTML redirect to `memory.store` - so the SDK's remaining use
+is against a self-hosted v1.
+
+A ref that is off the default branch on purpose now lives in the audit's own `DELIBERATE` table with
+its reason, so the check exits 0 and can be a gate. Without that it would stay red for ever on a ref
+that is correct, and a permanently red check is one nobody reads.
 
 Run it from here rather than copying Runway's script into fifty repositories:
 
@@ -262,6 +277,30 @@ separates two cases that look alike:
 - **Mistral** reports its repository as unreachable, which matches the known 404 on
   `mistralai/platform-docs-public`. **Voicebox**'s `${VOICEBOX_REPOSITORY_REF:-main}` defaults to the
   default branch and is fine.
+
+### A regeneration can break a build with no spec change at all
+
+Julep was regenerated on 2026-11-17 for a reason that had nothing to do with its models - the fetch
+ref was renamed - and its spec came back **byte-identical**. The library then failed to compile:
+three `CS3001`s, because a released `autosdk.cli` had started mapping `format: int8` to `sbyte`,
+which is not CLS-compliant, while `src/libs/Directory.Build.props` declares the assembly
+`[CLSCompliant(true)]`. The same regeneration also moved 42 files from `int` to `long`.
+
+So an auto-update PR can go red without upstream touching anything: the generator moved, not the
+spec. The per-SDK fix is a `generate.sh` step that drops the offending format and leaves
+`type: integer`, which keeps the declared `minimum`/`maximum`.
+
+```bash
+python3 -I scripts/audit_non_cls_integer_formats.py   # exits 1 while any SDK is exposed
+```
+
+**Only `int8` qualifies, and getting that wrong is easy.** The first version of that script also
+flagged `uint16` and `uint32` on the reasoning that `ushort` and `uint` are not CLS-compliant
+either, and reported **seven** exposed SDKs. Reading `CSharpTypeMapper` instead of reasoning about
+it says AutoSDK never emits those: every unsigned format is deliberately widened into a signed type
+(`uint8` -> `byte`, `uint16` -> `int`, `uint32` -> `long`, `uint64` -> `long`). That is also visible
+in Julep's own output, where a `format: uint16` field generates a plain `int`. Six of the seven were
+never exposed; the audit reports **0** now that Julep carries the step.
 
 ### A workspace-wide figure is a snapshot of a moving tree
 
