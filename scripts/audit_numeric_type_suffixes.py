@@ -73,6 +73,11 @@ def shape(path: pathlib.Path) -> str | None:
 
     Cached by path: the un-suffixed base is re-read once per colliding name that shares it, and
     `Fal` alone has 492 collisions. File reads were the single largest cost in the profile.
+
+    Reading these concurrently was measured and rejected: a 16-thread pool moved ~14.5s to 12-14s,
+    inside the noise of a busy host, for a chunk of set-building logic. The wall time is spread
+    across 2.8s of iterdir over 306607 entries in 220 Generated directories and the rest in
+    per-file latency, so there is no single hot spot left to parallelize.
     """
     try:
         text = path.read_text(errors="replace")
