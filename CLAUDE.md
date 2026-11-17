@@ -111,6 +111,43 @@ dotnet test src/tests/IntegrationTests/ --filter "FullyQualifiedName~TestName"
 autosdk trim src/libs/<SdkName>/<SdkName>.csproj
 ```
 
+### `exit=124` from host admission is "no slot", not a failure
+
+Heavy builds here go through `Advantage/scripts/host-build-admission.sh`, which shares one physical
+host with Xcode and SwiftPM. When it cannot get a lease it exits **124 and runs nothing** - no
+compiler started, no test executed, no output written. The log file is empty or stale, which is what
+makes it dangerous: a `124` looks exactly like a build that failed instantly, and a stale log looks
+exactly like the previous run's result.
+
+Three things follow.
+
+**Read the exit code before the log.** On 2026-11-17 this came back seven times in a row on the same
+command. Nothing was wrong with the code; the lease was held by the user's own `adv` Xcode build at
+`release` priority. Reporting any of those as a test failure would have been false.
+
+**Look at who holds it instead of guessing.** The lease is a file, and it names its owner:
+
+```bash
+ls -A ~/.cache/advantage/xcode-build-coordinator/.host-build-active   # empty = free
+cat ~/.cache/advantage/xcode-build-coordinator/.host-build-active/*/*  # owner pid, identity, priority
+```
+
+An `adv` or `xcode` workload there is someone else's build and it is being served correctly. Do not
+fight it - a denied .NET run is the gate working.
+
+**Retry, do not re-diagnose.** Wrap the call rather than reaching for a different command:
+
+```bash
+for i in 1 2 3 4 5; do
+  "$A" -- dotnet test <project> > out.log 2>&1
+  r=$?; [ "$r" != "124" ] && break
+  sleep 60
+done
+```
+
+Waiting for `.host-build-active` to empty first, then retrying, is the cooperative version and is
+what finally got a slot.
+
 ### Common Conventions
 
 - **Target frameworks:** `net10.0` (all new SDKs target net10.0 only; legacy infrastructure like Tiktoken and CSharpToJsonSchema still multi-target)
