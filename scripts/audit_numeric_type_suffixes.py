@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import functools
 import hashlib
 import json
 import pathlib
@@ -66,8 +67,13 @@ def declared_components(generated: pathlib.Path) -> set[str]:
     return _declared_components(_load_document(path)) if path else set()
 
 
+@functools.lru_cache(maxsize=None)
 def shape(path: pathlib.Path) -> str | None:
-    """A hash of the file with all type numbering erased, so copies hash alike."""
+    """A hash of the file with all type numbering erased, so copies hash alike.
+
+    Cached by path: the un-suffixed base is re-read once per colliding name that shares it, and
+    `Fal` alone has 492 collisions. File reads were the single largest cost in the profile.
+    """
     try:
         text = path.read_text(errors="replace")
     except OSError:
