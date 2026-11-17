@@ -207,6 +207,30 @@ python3 -I scripts/audit_orphan_type_usage.py --sdk <Name>        # what the SDK
 An unreachable component is often a real vocabulary the document simply cannot connect to an
 operation. Treat the audit as a question, not a verdict.
 
+### Read the contract, not the artifact
+
+Three wrong entries went into Cartesia's CLAUDE.md in one sitting, each from inspecting one artifact
+and generalizing: `ls asyncapi.*` found nothing so "there is no AsyncAPI" (its contracts are named
+`stt-asyncapi.json` and fetched at generation time); a grep for `Cartesia-Version` over generated
+output found nothing so "the header is lost" (the contract declares `cartesia_version` as a required
+*query* parameter). `scripts/audit_generation_inputs.py` answers the first question properly - it
+reads the `autosdk generate` invocations and classifies each document by its `asyncapi:`/`openapi:`
+key.
+
+Applied across the 13 SDKs that generate from an AsyncAPI, the question "is this hand-written
+realtime client superseded?" has three different answers, and **dates alone give the wrong one**:
+
+| | |
+|---|---|
+| **Cartesia** | Superseded. Both STT channels are generated, the version is a required typed parameter there, and MEAI never opened a WebSocket. Entry points now `[Obsolete]`. |
+| **ElevenLabs** | **Not** superseded, though its hand-written session (2026-05-25) long predates the generated clients (2026-10-19). Its contracts declare `realtime`, `dialogue` and `dialogueMulti` - **no STT channel** - so `RealtimeSpeechToTextSession` is the only implementation of it. Going by dates would have deprecated a live client. |
+| **OpenAI** | Genuine overlap - contract and hand-written session both cover `realtime` - but the hand-written one adds an `ILogger` and a service wrapper, and arrived two days before the generated client. A judgement call, not neglect. |
+| Deepgram, Inworld, Simli, Xai | Not duplicates at all. Their `*.Auth.cs` / `*.Extensions.cs` files extend the generated clients, which is the pattern here; they only look like candidates because they touch `ClientWebSocket` options. |
+| AssemblyAI, Mistral, NariLabs, SmallestAI, Soniox, Ultravox | No hand-written WebSocket code. |
+
+So the check is: which channels does the contract declare, and does the hand-written code implement
+one of them. Not the file's age, and not whether a grep finds a string in the output.
+
 ### Don't let a suite of nothing but skips pass for a green run
 
 Most integration tests fetch an API key and raise `AssertInconclusiveException` without one, which
