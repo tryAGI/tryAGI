@@ -220,12 +220,15 @@ commit with the default branch's (2026-11-17):
 
 | SDK | fetches | its last commit | default branch |
 |---|---|---|---|
-| **Weaviate** | `weaviate/weaviate` @ `openapi_docs` | **2025-02-18** | `main`, 2026-11-16 |
+| ~~**Weaviate**~~ | ~~`weaviate/weaviate` @ `openapi_docs`~~ | ~~**2025-02-18**~~ | fixed 2026-11-17 |
 | **Julep** | `julep-ai/julep` @ `dev` | **2026-03-13** | `main`, 2026-07-29 |
 
-Weaviate's source has been frozen for 21 months. Neither is fixed here: switching the source
-triggers a full regeneration with unknown breakage, which is exactly the 1026 uncommitted paths
-Runway's own fix produced, so each wants a deliberate pass.
+Weaviate's source had been frozen for 21 months, and the switch cost two spec patches rather than a
+URL swap — the new document carries OpenAPI 3.1's `"type": ["string", "null"]` inside a
+`swagger: "2.0"` envelope, and a `text/event-stream` response with no schema; both are in
+`SPEC_WORKAROUNDS.md`. What the switch bought: **68 operations to 131**, 79 definitions to 140, and
+nothing removed. That is the scale of what a frozen source hides — this SDK shipped 1.29.0 while the
+server reached 1.41.0-rc.0. Julep is not fixed; it wants the same deliberate pass.
 
 Run it from here rather than copying Runway's script into fifty repositories:
 
@@ -233,13 +236,29 @@ Run it from here rather than copying Runway's script into fifty repositories:
 python3 -I scripts/audit_spec_source_branches.py   # exits 1 when a fetch points off the default branch
 ```
 
-It asks Runway's question for every SDK at once — 47 fetches are on a default branch or a tag — and
+It asks Runway's question for every SDK at once — 48 fetches are on a default branch or a tag, and
 separates two cases that look alike:
 
-- **Letta** pins `letta-ai/letta` at `56ba9c25` *because upstream deleted the spec*:
-  `fern/openapi.json` is gone from `main` and a code search finds no `openapi.json` anywhere in that
-  repository. The pin is the only way to reach a spec that no longer exists, so it is correct — but it
-  also means the SDK is frozen until a new source is found, which is the real open question there.
+- **Letta** pins `letta-ai/letta` at `56ba9c25` *because upstream deleted the spec*. The pin is the
+  only way to reach a document that no longer exists, so it is correct — and the reason is bigger than
+  a moved file: on 2026-08-16 that repository was **archived into a docs-only shell** ("chore: archive
+  the legacy server repository"), and its root now holds nothing but Markdown. Nowhere in the
+  `letta-ai` org is there a replacement — searched for `openapi.json`, `openapi.yaml`, `fern.config.json`
+  and `generators.yml` across all 66 repositories, and `letta-python`'s `.stats.yml` (it is a Stainless
+  SDK, not Fern) records only `configured_endpoints: 129`, no source URL.
+
+  `api.letta.com/openapi.json` answers **401**, which looks like an auth-gated route and is not:
+  `api.letta.com/definitely-not-a-route-xyz` answers 401 too, so Letta Cloud authenticates **before**
+  it routes and the status says nothing about whether the path exists. `docs.letta.com` serves no
+  `docs.json`, `mint.json` or spec of its own.
+
+  The one source that does track upstream is the server itself. `letta/letta` on Docker Hub is
+  actively published — `0.34.63`, 2026-11-15 — and Letta is FastAPI, which serves its own
+  `/openapi.json`. That makes the generation input a container run rather than a `curl`, the same
+  shape Chroma, Weaviate and Ollama already use for *tests*, moved to generation time. The pinned
+  spec is from 2026-08-14 and the server has gone 0.34.12 → 0.34.63 since, so this is worth doing —
+  but it has **not been verified here**: `docker run letta/letta` is refused in this environment, so
+  nobody has yet confirmed the container serves a usable document.
 - **Mistral** reports its repository as unreachable, which matches the known 404 on
   `mistralai/platform-docs-public`. **Voicebox**'s `${VOICEBOX_REPOSITORY_REF:-main}` defaults to the
   default branch and is fine.
