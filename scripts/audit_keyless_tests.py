@@ -46,7 +46,6 @@ from __future__ import annotations
 import argparse
 import collections
 import json
-import os
 import pathlib
 import re
 import sys
@@ -54,27 +53,13 @@ import sys
 # Isolated mode (`python3 -I`) drops the script's own directory from sys.path.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from csharp_references import strip_non_code  # noqa: E402
+from spec_tools import source_files  # noqa: E402
 
 WORKSPACE = pathlib.Path(__file__).resolve().parent.parent
 TEST_METHOD = re.compile(r"\[\s*TestMethod\s*\]")
 AUTH_GATEWAY = re.compile(
     r"GetEnvironmentVariable|AssertInconclusive|GetAuthenticatedClient|GetApiKey\b|GetClient\s*\("
 )
-
-
-# Directories under src/tests that cannot hold a test, pruned rather than filtered afterwards.
-# `Snapshots` is the one that matters: AutoSDK keeps 261515 .cs baselines there, 98.6% of every
-# .cs file under any src/tests in the workspace, and the audit was reading and stripping each one.
-PRUNED = {"bin", "obj", "Snapshots", "TestResults", "_snapshots"}
-
-
-def test_sources(root: pathlib.Path):
-    """Every .cs file under `root` that could declare a test, pruning what cannot."""
-    for directory, subdirectories, names in os.walk(root):
-        subdirectories[:] = [d for d in subdirectories if d not in PRUNED]
-        for name in sorted(names):
-            if name.endswith(".cs"):
-                yield pathlib.Path(directory) / name
 
 
 def test_method_bodies(code: str):
@@ -120,7 +105,7 @@ def scan(sdk_tests: pathlib.Path) -> tuple[int, int, list[str]]:
     """(test methods in all files, test methods that reach no auth gateway, those files' names)."""
     total = keyless = 0
     files: list[str] = []
-    for path in test_sources(sdk_tests):
+    for path in source_files(sdk_tests):
         try:
             text = path.read_text(errors="replace")
         except OSError:

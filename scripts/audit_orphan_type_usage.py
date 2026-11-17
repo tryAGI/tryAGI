@@ -29,6 +29,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from csharp_references import type_references  # noqa: E402
 from spec_tools import load_document  # noqa: E402
+from spec_tools import source_files  # noqa: E402
 
 WORKSPACE = HERE.parent
 
@@ -41,10 +42,14 @@ def load_module(name: str):
 
 
 def hand_written(root: pathlib.Path):
-    for path in sorted(root.rglob("*.cs")):
-        if any(part in ("Generated", "bin", "obj") for part in path.parts):
-            continue
-        yield path
+    """Every .cs file under `root` that a person wrote, i.e. not generated output.
+
+    `source_files` prunes bin, obj and the snapshot trees during the walk; `Generated` is excluded
+    here because this audit's question is specifically what hand-written code uses.
+    """
+    for path in source_files(root):
+        if "Generated" not in path.parts:
+            yield path
 
 
 def main() -> int:

@@ -74,6 +74,40 @@ class DeclaredComponentsTests(unittest.TestCase):
             self.assertEqual(MODULE.declared_components(document), set(), repr(document))
 
 
+class SourceFilesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temp.name)
+        (self.root / "src").mkdir()
+        (self.root / "src" / "Kept.cs").write_text("//")
+        for pruned in ("bin", "obj", "Snapshots", "TestResults"):
+            (self.root / "src" / pruned).mkdir()
+            (self.root / "src" / pruned / "Skipped.cs").write_text("//")
+        # nested, to prove the prune happens during the walk and not per-level
+        (self.root / "src" / "Deep").mkdir()
+        (self.root / "src" / "Deep" / "Snapshots").mkdir()
+        (self.root / "src" / "Deep" / "Snapshots" / "Buried.cs").write_text("//")
+        (self.root / "src" / "Deep" / "AlsoKept.cs").write_text("//")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_prunes_the_listed_directories(self) -> None:
+        found = {p.name for p in MODULE.source_files(self.root)}
+        self.assertEqual(found, {"Kept.cs", "AlsoKept.cs"})
+
+    def test_prunes_at_any_depth(self) -> None:
+        self.assertNotIn("Buried.cs", {p.name for p in MODULE.source_files(self.root)})
+
+    def test_suffix_is_respected(self) -> None:
+        (self.root / "src" / "notes.md").write_text("x")
+        self.assertEqual(
+            {p.name for p in MODULE.source_files(self.root, suffix=".md")}, {"notes.md"})
+
+    def test_missing_root_yields_nothing(self) -> None:
+        self.assertEqual(list(MODULE.source_files(self.root / "absent")), [])
+
+
 class StableTests(unittest.TestCase):
     def test_key_order_does_not_matter(self) -> None:
         self.assertEqual(MODULE.stable({"a": 1, "b": 2}), MODULE.stable({"b": 2, "a": 1}))

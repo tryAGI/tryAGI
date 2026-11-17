@@ -18,9 +18,32 @@ The audits are run as `python3 -I scripts/<name>.py`, so that is the supported w
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 
 SPEC_SUFFIXES = (".yaml", ".yml", ".json")
+
+# Directories that hold no hand-written or generated *source* worth scanning. `Snapshots` is the one
+# that matters: AutoSDK keeps 261515 .cs baselines under src/tests/AutoSDK.SnapshotTests/Snapshots,
+# 98.6% of every .cs file under any src/tests in the workspace, and an audit that walked into them
+# took 2m18s instead of 1.4s.
+#
+# So this is for walking source trees, and it is wrong for walking a snapshot tree - don't reach for
+# `source_files` in an audit whose subject IS the baselines (audit_snapshot_collisions is one).
+PRUNED_DIRECTORIES = frozenset({"bin", "obj", "Snapshots", "_snapshots", "TestResults", "node_modules"})
+
+
+def source_files(root: pathlib.Path, suffix: str = ".cs"):
+    """Files under `root` with that suffix, pruning PRUNED_DIRECTORIES during the walk.
+
+    Pruning while walking rather than filtering afterwards is the point: `rglob` descends into a
+    directory before anything can reject it.
+    """
+    for directory, subdirectories, names in os.walk(root):
+        subdirectories[:] = [d for d in subdirectories if d not in PRUNED_DIRECTORIES]
+        for name in sorted(names):
+            if name.endswith(suffix):
+                yield pathlib.Path(directory) / name
 
 
 def load_document(path: pathlib.Path):
