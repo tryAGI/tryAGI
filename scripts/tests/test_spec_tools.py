@@ -175,10 +175,31 @@ class SchemaPositionTests(unittest.TestCase):
         }}}}
         self.assertEqual(self.formats_found(document), {"components/schemas/A": "uuid"})
 
+    def test_a_default_response_is_a_schema_position(self) -> None:
+        # `default` under `responses` is the catch-all status code, not a default value. Excluding
+        # it blindly hid 416 genuine schema positions across the corpus.
+        document = {"paths": {"/x": {"post": {"responses": {"default": {"content": {
+            "application/json": {"schema": {"format": "date-time"}}}}}}}}}
+        self.assertEqual(
+            self.formats_found(document),
+            {"paths//x/post/responses/default/content/application/json/schema": "date-time"})
+
+    def test_a_schemas_own_default_value_is_still_excluded(self) -> None:
+        document = {"components": {"schemas": {"A": {"default": {"format": "mp4"}}}}}
+        self.assertEqual(self.formats_found(document), {})
+
+    def test_a_property_literally_named_default_outside_responses_is_excluded(self) -> None:
+        # Conservative on purpose: `default` anywhere but directly under `responses` is a value.
+        document = {"components": {"schemas": {"A": {"properties": {
+            "default": {"format": "mp4"}}}}}}
+        self.assertEqual(self.formats_found(document), {})
+
     def test_is_schema_position_takes_the_path_itself(self) -> None:
         self.assertTrue(MODULE.is_schema_position(["components", "schemas", "A"]))
         self.assertFalse(MODULE.is_schema_position(["components", "schemas", "A", "example"]))
         self.assertFalse(MODULE.is_schema_position(["paths", "/q", "post", "x-fern-streaming"]))
+        self.assertTrue(MODULE.is_schema_position(["paths", "/q", "post", "responses", "default"]))
+        self.assertFalse(MODULE.is_schema_position(["components", "schemas", "A", "default"]))
 
 
 class StableTests(unittest.TestCase):

@@ -307,6 +307,26 @@ types (`mp4`, `wav`, `srt`, `pdf`, `gguf`) is the tell - a media type is what a 
 what a JSON value's type is, so finding one next to a `format` key means you are reading data, not a
 schema.
 
+`spec_tools.walk_schema_positions` is that filter, shared. Two things it cost to get right:
+
+- **`default` means two different things.** Under a schema it is a property's default *value*;
+  under `responses` it is the catch-all **status code**, and everything below it is as much a schema
+  as a `200` would be. Excluding it blindly hid **416** genuine schema positions, all of the shape
+  `paths/<route>/<method>/responses/default/content/.../schema`. It was caught by pointing the
+  filter at a different question - reachability - and seeing it call those non-schemas.
+- **Do not apply it to a reachability question.** Asked which schema `$ref`s sit outside a schema
+  position, it answers 209 of 96996, and the remainder is almost entirely vendor extensions that
+  hold *real* references: `x-fern-streaming` (152), `x-webhooks` (17), `x-apifox-refs`,
+  `x-stainless-stream-event-schema`. Filtering those out would mark ~190 live references as absent
+  and **invent orphans**, which is the failure the unreferenced-components audit already warns
+  about. Only 12 were genuinely data, under `example`/`examples`. The filter belongs to questions
+  about what a schema *declares*, not to questions about what points at one.
+
+Checked the other audits for the same exposure rather than refactoring on principle:
+`audit_response_required_defaults.py` iterates `components.schemas` by name and never walks blindly,
+and the streaming-media-type scan had 0 hits in non-schema positions. So one filter, two call sites,
+and a measured reason not to spread it further.
+
 ### A regeneration can break a build with no spec change at all
 
 Julep was regenerated on 2026-11-17 for a reason that had nothing to do with its models - the fetch

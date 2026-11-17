@@ -123,12 +123,23 @@ def is_schema_position(segments) -> bool:
     The tell was in the data: the formats were `mp4`, `wav`, `srt`, `pdf`, `gguf` - media types,
     which say what a payload is and never what a JSON value's type is.
 
+    `default` carries two meanings and only one of them is data. Under a schema it is that
+    property's default *value*; under `responses` it is the catch-all **status code**, and
+    everything below it is as much a schema as a `200` would be. Excluding it blindly hid 416
+    genuine schema positions - `paths/<route>/<method>/responses/default/content/.../schema` - which
+    is how this was caught: a reachability count of schema `$ref`s reported them as non-schema.
+
     `segments` is the path as a list of keys and indices, as a walk accumulates it.
     """
-    return not any(
-        str(segment) in NON_SCHEMA_KEYS or str(segment).startswith("x-")
-        for segment in segments
-    )
+    for index, segment in enumerate(segments):
+        name = str(segment)
+        if name.startswith("x-"):
+            return False
+        if name in NON_SCHEMA_KEYS:
+            if name == "default" and index > 0 and str(segments[index - 1]) == "responses":
+                continue
+            return False
+    return True
 
 
 def walk_schema_positions(node, segments=None):
