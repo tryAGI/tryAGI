@@ -132,6 +132,55 @@ class SourceFilesTests(unittest.TestCase):
         self.assertEqual(list(MODULE.source_files(self.root / "absent")), [])
 
 
+class SchemaPositionTests(unittest.TestCase):
+    """The filter that turned "52 typeless schemas in 16 SDKs" into the real answer, 0."""
+
+    def formats_found(self, document):
+        return {
+            "/".join(str(s) for s in segments): node["format"]
+            for node, segments in MODULE.walk_schema_positions(document)
+            if isinstance(node, dict) and "format" in node
+        }
+
+    def test_a_real_schema_is_a_schema_position(self) -> None:
+        document = {"components": {"schemas": {"A": {"format": "date-time"}}}}
+        self.assertEqual(self.formats_found(document), {"components/schemas/A": "date-time"})
+
+    def test_an_example_payload_is_not(self) -> None:
+        # OpenRouter's `components/schemas/ChatContentAudio/example/input_audio` holds
+        # `{"data": ..., "format": "wav"}`. That is data, not a schema.
+        document = {"components": {"schemas": {"A": {"example": {"input_audio": {"format": "wav"}}}}}}
+        self.assertEqual(self.formats_found(document), {})
+
+    def test_a_vendor_extension_is_not(self) -> None:
+        # Vectara's `x-fern-streaming` declares `format: sse`.
+        document = {"paths": {"/q": {"post": {"x-fern-streaming": {"format": "sse"}}}}}
+        self.assertEqual(self.formats_found(document), {})
+
+    def test_a_default_and_an_enum_value_are_not(self) -> None:
+        for key in ("default", "enum", "examples"):
+            document = {"components": {"schemas": {"A": {key: {"nested": {"format": "mp4"}}}}}}
+            self.assertEqual(self.formats_found(document), {}, key)
+
+    def test_the_exclusion_reaches_everything_nested_inside(self) -> None:
+        # Ollama's is three levels below `example`; excluding only the immediate child would miss it.
+        document = {"paths": {"/t": {"get": {"responses": {"200": {"content": {
+            "application/json": {"example": {"models": [{"details": {"format": "gguf"}}]}}}}}}}}}
+        self.assertEqual(self.formats_found(document), {})
+
+    def test_a_schema_beside_an_example_still_counts(self) -> None:
+        document = {"components": {"schemas": {"A": {
+            "format": "uuid",
+            "example": {"format": "mp4"},
+        }}}}
+        self.assertEqual(self.formats_found(document), {"components/schemas/A": "uuid"})
+
+    def test_is_schema_position_takes_the_path_itself(self) -> None:
+        self.assertTrue(MODULE.is_schema_position(["components", "schemas", "A"]))
+        self.assertFalse(MODULE.is_schema_position(["components", "schemas", "A", "example"]))
+        self.assertFalse(MODULE.is_schema_position(["paths", "/q", "post", "x-fern-streaming"]))
+
+
 class StableTests(unittest.TestCase):
     def test_key_order_does_not_matter(self) -> None:
         self.assertEqual(MODULE.stable({"a": 1, "b": 2}), MODULE.stable({"b": 2, "a": 1}))

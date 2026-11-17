@@ -106,6 +106,49 @@ def find_spec(stem: str, *roots: pathlib.Path) -> pathlib.Path | None:
     return None
 
 
+# Keys under which a document holds *data*, not schemas. A `format` there is a value, not a type
+# annotation, and the generator never type-maps it.
+NON_SCHEMA_KEYS = frozenset({"example", "examples", "default", "enum"})
+
+
+def is_schema_position(segments) -> bool:
+    """Whether a path inside an OpenAPI document can hold a schema object.
+
+    Asked how many specs declare a typeless schema carrying an unrecognized `format`, a plain walk
+    over every dict with a `format` key and no `type` answered 52 in 16 SDKs - and not one was a
+    schema. Vectara's were the `format: sse` field of an `x-fern-streaming` extension; OpenRouter's,
+    Ollama's and Shotstack's were inside request and response **example payloads**. Through this
+    filter the answer is 0 of 223.
+
+    The tell was in the data: the formats were `mp4`, `wav`, `srt`, `pdf`, `gguf` - media types,
+    which say what a payload is and never what a JSON value's type is.
+
+    `segments` is the path as a list of keys and indices, as a walk accumulates it.
+    """
+    return not any(
+        str(segment) in NON_SCHEMA_KEYS or str(segment).startswith("x-")
+        for segment in segments
+    )
+
+
+def walk_schema_positions(node, segments=None):
+    """Yield (node, path_segments) for every dict a schema object could legitimately occupy.
+
+    Filters with `is_schema_position`, so anything under an example, a default, an enum value or a
+    vendor extension is skipped - along with everything nested inside it.
+    """
+    segments = [] if segments is None else segments
+    if isinstance(node, dict):
+        if is_schema_position(segments):
+            yield node, segments
+            for key, value in node.items():
+                yield from walk_schema_positions(value, segments + [key])
+    elif isinstance(node, list):
+        if is_schema_position(segments):
+            for index, value in enumerate(node):
+                yield from walk_schema_positions(value, segments + [index])
+
+
 def declared_components(document) -> set[str]:
     """The names under `components.schemas`, which are never AutoSDK name collisions.
 
